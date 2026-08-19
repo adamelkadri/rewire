@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from rewire.analyzers import RepositoryIndex
 from rewire.core.config import Settings, get_settings
 
 
@@ -29,12 +30,31 @@ def _isolate_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 SPECS_DIR = Path(__file__).parent / "fixtures" / "specs"
+REPOS_DIR = Path(__file__).parent / "fixtures" / "repos"
 
 
 @pytest.fixture
 def specs() -> Path:
     """Directory holding the OpenAPI fixture specifications."""
     return SPECS_DIR
+
+
+@pytest.fixture
+def sample_repo() -> Path:
+    """A small application that calls the OpenAI SDK three different ways."""
+    return REPOS_DIR / "sample_openai_app"
+
+
+@pytest.fixture(scope="session")
+def sample_index() -> RepositoryIndex:
+    """Session-scoped index of the sample repository.
+
+    Indexing is deterministic and side-effect free, so one build can be shared
+    across every test that queries it.
+    """
+    from rewire.analyzers import build_index
+
+    return build_index(REPOS_DIR / "sample_openai_app")
 
 
 @pytest.fixture

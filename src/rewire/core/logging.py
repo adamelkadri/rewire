@@ -100,7 +100,11 @@ def configure_logging(
         processors=[*shared_processors, renderer],
         wrapper_class=structlog.make_filtering_bound_logger(numeric_level),
         logger_factory=structlog.WriteLoggerFactory(file=sys.stderr),
-        cache_logger_on_first_use=True,
+        # Caching would freeze each logger against the configuration active the
+        # first time it was used. Modules bind their logger at import, so a
+        # later `configure_logging` -- which is exactly what `--verbose` does --
+        # would silently have no effect on them.
+        cache_logger_on_first_use=False,
     )
 
     logging.basicConfig(
@@ -119,11 +123,20 @@ def configure_from_settings(settings: Settings) -> None:
 def get_logger(name: str) -> FilteringBoundLogger:
     """Return a structured logger bound to ``name``.
 
-    The name is bound as an ordinary event key rather than added by a processor:
-    Rewire writes directly to stderr instead of routing through the stdlib
-    handler chain, and the stdlib name processor requires a stdlib logger.
+    The name is passed as an initial value rather than applied with ``.bind()``.
+    ``bind()`` materialises structlog's lazy proxy immediately, freezing the
+    logger against whatever configuration is active at that moment -- and
+    modules call this at import, before :func:`configure_logging` has run. The
+    result was a logger using structlog's defaults: console rendering onto
+    *stdout*, ignoring ``REWIRE_LOG_LEVEL`` and ``REWIRE_LOG_FORMAT`` entirely,
+    which corrupted every ``--json`` payload it interleaved with.
+
+    Passing the name as an initial value keeps the proxy lazy, so configuration
+    is resolved on the first call rather than at import. The key is
+    ``logger_name`` rather than ``logger`` because structlog reserves the latter
+    as a parameter of ``wrap_logger``.
     """
-    logger: FilteringBoundLogger = structlog.get_logger(name).bind(logger=name)
+    logger: FilteringBoundLogger = structlog.get_logger(name, logger_name=name)
     return logger
 
 

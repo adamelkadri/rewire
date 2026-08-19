@@ -1,9 +1,8 @@
 """Command-line entry point for Rewire.
 
-Phase 0 exposes only the commands that are genuinely implemented: ``version``
-and ``doctor``. Commands for later phases are deliberately absent rather than
-stubbed, so that ``rewire --help`` never advertises behaviour that does not
-exist.
+Only commands that are genuinely implemented are exposed. Commands for later
+phases are deliberately absent rather than stubbed, so that ``rewire --help``
+never advertises behaviour that does not exist.
 """
 
 from __future__ import annotations
@@ -19,6 +18,16 @@ from rich.markup import escape
 from rich.table import Table
 
 from rewire.__version__ import __version__
+from rewire.analyzers import (
+    DiscoveryLimits,
+    Reference,
+    ReferenceKind,
+    RepositoryIndex,
+    TextMatch,
+    build_index,
+    get_backend,
+    resolve_repository_root,
+)
 from rewire.changes import ApiChange, ChangeReport, Severity, diff_specs, load_spec
 from rewire.core.config import LogLevel, Settings, get_settings
 from rewire.core.doctor import CheckStatus, DoctorReport, run_checks
@@ -59,6 +68,14 @@ class FailOn(StrEnum):
     BREAKING = "breaking"
     POTENTIALLY_BREAKING = "potentially-breaking"
     ANY = "any"
+
+
+class SearchMode(StrEnum):
+    """Which search strategies ``search`` should use."""
+
+    AST = "ast"
+    TEXT = "text"
+    BOTH = "both"
 
 
 def _version_callback(value: bool) -> None:
@@ -235,6 +252,174 @@ def config() -> None:
     """Print the effective configuration, with secrets redacted."""
     settings: Settings = get_settings()
     console.print_json(json.dumps(settings.model_dump(mode="json"), default=str))
+
+
+@app.command()
+def analyze(
+    repo: Annotated[
+        Path,
+        typer.Argument(exists=True, file_okay=False, readable=True, help="Repository root."),
+    ],
+    as_json: Annotated[bool, typer.Option("--json", help="Emit the full index as JSON.")] = False,
+    include_tests: Annotated[
+        bool, typer.Option("--tests/--no-tests", help="Include test files in the index.")
+    ] = True,
+) -> None:
+    """Index a repository's Python code and report what it contains.
+
+    Deterministic and LLM-free: imports, definitions, call sites, references,
+    environment reads, declared dependencies and entry points are all extracted
+    by parsing, not by pattern matching.
+    """
+    index = build_index(repo, limits=DiscoveryLimits(include_tests=include_tests))
+
+    if as_json:
+        console.print_json(index.model_dump_json(exclude_none=True))
+        return
+    _render_index(index)
+
+
+def _render_index(index: RepositoryIndex) -> None:
+    stats = index.stats
+    console.print(f"[bold]{index.root}[/bold]")
+    console.print(
+        f"  {stats.files_indexed} file(s) indexed, {stats.test_files} test, "
+        f"{stats.total_lines} lines in {stats.duration_seconds:.2f}s"
+    )
+    console.print(
+        f"  {stats.symbols} symbols, {stats.imports} imports, "
+        f"{stats.calls} calls, {stats.references} references"
+    )
+    if stats.files_failed or stats.files_skipped:
+        console.print(
+            f"  [yellow]{stats.files_failed} unparseable, {stats.files_skipped} skipped[/yellow]"
+        )
+
+    modules = index.imported_modules()
+    if modules:
+        declared = index.declared_dependency_names()
+        table = Table(title="Imported modules", title_justify="left", title_style="bold cyan")
+        table.add_column("Module", no_wrap=True)
+        table.add_column("Imports", justify="right")
+        table.add_column("Declared", no_wrap=True)
+        for module, count in list(modules.items())[:15]:
+            is_declared = module.lower().replace("_", "-") in declared
+            table.add_row(escape(module), str(count), "[green]yes[/green]" if is_declared else "-")
+        console.print(table)
+
+    if index.entry_points:
+        table = Table(title="Entry points", title_justify="left", title_style="bold cyan")
+        table.add_column("Kind", no_wrap=True)
+        table.add_column("Location", overflow="fold")
+        table.add_column("Detail", overflow="fold")
+        for entry in index.entry_points:
+            location = f"{entry.file}:{entry.line}" if entry.line else entry.file
+            table.add_row(escape(entry.kind.value), escape(location), escape(entry.detail))
+        console.print(table)
+
+    for failed in index.failed_files:
+        reason = escape(failed.parse_error or "")
+        console.print(f"[yellow]unparseable[/yellow] {escape(failed.path)}: {reason}")
+
+
+def _render_references(references: list[Reference], root: Path) -> None:
+    table = Table(title="AST references", title_justify="left", title_style="bold cyan")
+    table.add_column("Location", no_wrap=True)
+    table.add_column("Kind", no_wrap=True)
+    table.add_column("Evidence", justify="right")
+    table.add_column("Context", overflow="fold")
+    for reference in references:
+        table.add_row(
+            escape(f"{reference.file}:{reference.line}"),
+            escape(reference.kind.value),
+            f"{reference.evidence:.1f}",
+            escape(reference.context or reference.enclosing_symbol or "-"),
+        )
+    console.print(table)
+
+
+def _render_text_matches(matches: list[TextMatch], backend_name: str) -> None:
+    table = Table(
+        title=f"Text matches ({backend_name})", title_justify="left", title_style="bold cyan"
+    )
+    table.add_column("Location", no_wrap=True)
+    table.add_column("Line", overflow="fold")
+    for match in matches:
+        table.add_row(escape(f"{match.file}:{match.line}"), escape(match.text.strip()))
+    console.print(table)
+
+
+@app.command()
+def search(
+    repo: Annotated[
+        Path,
+        typer.Argument(exists=True, file_okay=False, readable=True, help="Repository root."),
+    ],
+    pattern: Annotated[str, typer.Argument(help="Name or pattern to look for.")],
+    mode: Annotated[
+        SearchMode, typer.Option("--mode", help="Search strategy to use.")
+    ] = SearchMode.BOTH,
+    kind: Annotated[
+        list[ReferenceKind] | None,
+        typer.Option("--kind", help="Restrict AST results to these reference kinds."),
+    ] = None,
+    regex: Annotated[
+        bool, typer.Option("--regex", help="Treat the pattern as a regular expression.")
+    ] = False,
+    backend: Annotated[
+        str, typer.Option("--backend", help="Text backend: auto, ripgrep or python.")
+    ] = "auto",
+    as_json: Annotated[bool, typer.Option("--json", help="Emit results as JSON.")] = False,
+) -> None:
+    """Find a name in a repository, by parsing and by text search.
+
+    The two strategies answer different questions. AST search knows that
+    ``max_tokens=`` is a keyword argument on a specific call and grades it
+    accordingly; text search finds every occurrence including comments,
+    templates and files Rewire cannot parse. Running both shows the gap between
+    them, which is exactly what Phase 10's ablation measures.
+    """
+    root = resolve_repository_root(repo)
+    references: list[Reference] = []
+    matches: list[TextMatch] = []
+    backend_name = ""
+
+    if mode in (SearchMode.AST, SearchMode.BOTH):
+        index = build_index(root)
+        references = index.find_references(pattern, kinds=frozenset(kind) if kind else None)
+
+    if mode in (SearchMode.TEXT, SearchMode.BOTH):
+        searcher = get_backend(backend)
+        backend_name = searcher.name
+        matches = searcher.search(root, pattern, regex=regex)
+
+    if as_json:
+        console.print_json(
+            json.dumps(
+                {
+                    "pattern": pattern,
+                    "root": str(root),
+                    "text_backend": backend_name or None,
+                    "references": [r.model_dump(mode="json") for r in references],
+                    "text_matches": [m.model_dump(mode="json") for m in matches],
+                }
+            )
+        )
+        return
+
+    if references:
+        _render_references(references, root)
+    if matches:
+        _render_text_matches(matches, backend_name)
+    if not references and not matches:
+        console.print(f"[yellow]No occurrences of {escape(pattern)!r} found.[/yellow]")
+        return
+
+    if mode is SearchMode.BOTH:
+        console.print(
+            f"\n[bold]{len(references)}[/bold] parsed reference(s), "
+            f"[bold]{len(matches)}[/bold] text match(es)"
+        )
 
 
 def main() -> None:

@@ -232,3 +232,93 @@ resolution while still being comparable.
 **Cost.** Multi-file specifications cannot be loaded. Bundling them first is a
 one-command preprocessing step, and supporting them properly means a fetch
 policy for remote URLs, which is a security decision for Phase 16.
+
+---
+
+## ADR-014 — Name resolution, not text matching, finds API usage
+
+**Decision.** Call sites are found by tracking what each local name is bound to
+— through imports, aliases, assignment chains and `self.x` attributes — and
+rewriting a call target into its library-qualified form. Text search exists as a
+fallback, not as the primary mechanism.
+
+**Why.** The same SDK call has many spellings:
+
+```python
+client.chat.completions.create(...)        # module-level instance
+self._client.chat.completions.create(...)  # attribute assigned in __init__
+oai.chat.completions.create(...)           # aliased module import
+```
+
+A grep for any one of them misses the others, and a grep for
+`chat.completions.create` cannot tell an OpenAI call from an identically named
+method on an unrelated object. Resolution turns all three into
+`openai.OpenAI.chat.completions.create`, so one query finds all of them and only
+them. The sample fixture contains all three spellings precisely so the test
+suite fails if resolution regresses.
+
+Instance attributes need a pre-pass: a client assigned in `__init__` is almost
+always used by a method defined later in the file, so a single forward walk
+misses it. The pre-pass binds imports as well as attributes — without imports,
+`self._client = OpenAI()` cannot be resolved either, which was a real bug caught
+by running the analyser against the fixture rather than against a unit test.
+
+**Cost.** Resolution is deliberately shallow. It does not do type inference, so
+a client returned from a factory function (`get_client().create()`) is not
+traced. Unresolved calls keep their literal callee and are still recorded, so
+giving up costs recall, never correctness.
+
+---
+
+## ADR-015 — Reference kinds carry graded evidence
+
+**Decision.** Every occurrence of a name is classified by *how* it appears —
+keyword argument, dict key, subscript, parameter, attribute, bare name, string
+literal — and each kind carries a fixed evidence weight.
+
+**Why.** "Does `max_tokens` appear in this file?" is the wrong question. A
+keyword argument at an SDK call site is near-certain evidence of the API field;
+the same token inside a log message is nearly none. Phase 3 has to rank
+locations, and ranking needs a signal that grep cannot produce. Recording the
+kind at extraction time — where the parse tree makes it unambiguous — is far
+cheaper and more reliable than reconstructing it later from surrounding text.
+
+One position yields exactly one reference, keeping the strongest kind. A dict
+key is also a string constant, and counting both would give Phase 3 two pieces
+of evidence for a single occurrence.
+
+**Cost.** The weights are hand-assigned, not learned. Phase 8 should replace
+them with values fitted to labelled impact data.
+
+---
+
+## ADR-016 — Unparseable and oversized inputs are visible, never silent
+
+**Decision.** A file that fails to parse stays in the index carrying its error.
+A repository that exceeds the file-count or total-size limits is *refused*, not
+truncated.
+
+**Why.** Both choices protect the same invariant: Rewire must never report "no
+usages found" for code it did not actually read. A dropped file and a truncated
+walk both produce a confident, wrong negative — the worst possible failure for a
+tool whose output drives automated edits. An error the user can see is strictly
+better than a silent gap.
+
+**Cost.** Callers must handle a `RepositoryError` on very large repositories
+rather than getting partial results. Raising the limits is a deliberate,
+explicit act.
+
+---
+
+## ADR-017 — `setup.py` dependencies are not extracted
+
+**Decision.** `pyproject.toml`, `setup.cfg` and `requirements*.txt` are parsed.
+`setup.py` is not.
+
+**Why.** Getting dependencies out of `setup.py` means either executing it —
+running arbitrary code from an untrusted repository, which is exactly what the
+sandbox exists to prevent — or pattern-matching it, which is wrong often enough
+to be worse than an honest gap.
+
+**Cost.** Repositories that declare dependencies only in `setup.py` report none.
+That is visible in the analysis output rather than silently wrong.

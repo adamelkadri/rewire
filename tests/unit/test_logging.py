@@ -51,7 +51,7 @@ def test_json_output_is_machine_readable(capsys: pytest.CaptureFixture[str]) -> 
     assert payload["repo"] == "example"
     assert payload["token"] == REDACTED_PLACEHOLDER
     assert payload["level"] == "info"
-    assert payload["logger"] == "test"
+    assert payload["logger_name"] == "test"
     assert "timestamp" in payload
 
 
@@ -93,3 +93,15 @@ def test_redacts_deeply_nested_secret_keys() -> None:
     )
     assert event["request"]["auth"]["api_key"] == REDACTED_PLACEHOLDER
     assert event["request"]["retries"] == 2
+
+
+def test_reconfiguration_affects_existing_loggers(capsys: pytest.CaptureFixture[str]) -> None:
+    """Modules bind their logger at import, long before --verbose is parsed."""
+    configure_logging(level=LogLevel.WARNING, log_format=LogFormat.JSON)
+    logger = get_logger("test")
+    logger.debug("before")
+    assert "before" not in capsys.readouterr().err
+
+    configure_logging(level=LogLevel.DEBUG, log_format=LogFormat.JSON)
+    logger.debug("after")
+    assert "after" in capsys.readouterr().err

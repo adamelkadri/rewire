@@ -10,8 +10,13 @@ repos:
       - id: check-merge-conflict
       - id: check-toml
       - id: check-yaml
+        # Fixture specifications are test data: some are deliberately
+        # malformed, which is the behaviour they exist to exercise.
+        exclude: ^tests/fixtures/
       - id: end-of-file-fixer
+        exclude: ^tests/fixtures/repos/
       - id: trailing-whitespace
+        exclude: ^tests/fixtures/repos/
       - id: mixed-line-ending
       - id: detect-private-key
 

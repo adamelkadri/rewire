@@ -1,0 +1,14 @@
+[project]
+name = "chatapp"
+version = "0.1.0"
+dependencies = [
+  "openai>=1.40,<2",
+  "fastapi>=0.115",
+  "httpx",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff"]
+
+[project.scripts]
+chatapp = "chatapp.cli:main"

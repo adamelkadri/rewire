@@ -88,6 +88,10 @@ exclude_lines = [
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
+# Fixture repositories are test *data*: Rewire analyses them, it does not own
+# them. They deliberately contain unparseable files, bare prints and unpinned
+# style, all of which are the point of the fixture.
+extend-exclude = ["tests/fixtures/repos"]
 
 [tool.ruff.lint]
 select = [
@@ -116,8 +120,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Tests assert on behaviour, use fake credential literals, and need no docstrings.
-"tests/**" = ["S101", "S105", "S106", "D100", "D101", "D102", "D103", "ANN"]
+# Tests assert on behaviour, use fake credential literals, run the CLI as a
+# subprocess with fixed argv, and need no docstrings.
+"tests/**" = ["S101", "S105", "S106", "S603", "D100", "D101", "D102", "D103", "ANN"]
 "src/rewire/cli.py" = ["T20"]  # the CLI is allowed to write to stdout via rich/typer
 
 [tool.ruff.lint.pydocstyle]

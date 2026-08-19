@@ -14,7 +14,7 @@ reasoning and code generation are genuinely required, and it is never permitted
 to declare its own success: correctness is decided by tests, type checks and
 lints executed in a sandbox.
 
-> **Status: Phase 1 — API change detection.** The build is incremental and each
+> **Status: Phase 2 — repository analysis.** The build is incremental and each
 > phase is finished, tested and documented before the next begins. See
 > [docs/roadmap.md](docs/roadmap.md) for what exists today and what does not.
 > Nothing in this README describes behaviour that is not implemented.
@@ -43,7 +43,7 @@ Each stage is an independently testable module under [`src/rewire/`](src/rewire/
 src/rewire/
   core/        settings, structured logging, error hierarchy, preflight checks
   changes/     API spec diffing and breaking-change classification   (Phase 1)
-  analyzers/   AST-based repository indexing and usage extraction    (Phase 2)
+  analyzers/   AST indexing, name resolution, usage extraction       (Phase 2)
   agents/      agent loop, tool definitions, run tracing             (Phase 4)
   llm/         provider-agnostic LLM abstraction                     (Phase 4)
   sandbox/     isolated patch execution and verification             (Phase 5)
@@ -138,6 +138,64 @@ uv run rewire api-diff old.yaml new.yaml --fail-on breaking   # exits 1 in CI
 }
 ```
 
+## Understand a repository
+
+```bash
+uv run rewire analyze ./example-repo
+uv run rewire search ./example-repo max_tokens
+```
+
+`analyze` parses every Python file and records imports, definitions, call sites,
+name references, environment reads, declared dependencies and entry points. No
+LLM, no embeddings — Python's own AST.
+
+The reason it parses rather than greps is that one SDK call has many spellings:
+
+```python
+client.chat.completions.create(...)         # module-level instance
+self._client.chat.completions.create(...)   # attribute assigned in __init__
+oai.chat.completions.create(...)            # aliased module import
+```
+
+Rewire tracks what each name is bound to — through imports, aliases, assignment
+chains and `self.x` attributes — and rewrites all three into
+`openai.OpenAI.chat.completions.create`. One query finds all of them:
+
+```python
+>>> index = build_index("./example-repo")
+>>> len(index.find_calls("openai.OpenAI.chat.completions.create"))
+3
+```
+
+`search` runs both strategies side by side, which shows what parsing buys:
+
+```text
+AST references
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓
+┃ Location                 ┃ Kind             ┃ Evidence ┃ Context             ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━┩
+│ src/chatapp/client.py:25 │ parameter        │      0.7 │ generate            │
+│ src/chatapp/client.py:26 │ keyword_argument │      1.0 │ ...completions.crea │
+│ src/chatapp/client.py:64 │ dict_key         │      0.9 │ build_payload       │
+└──────────────────────────┴──────────────────┴──────────┴─────────────────────┘
+```
+
+Text search reports seven matching lines. AST search reports the same
+occurrences *classified*: a keyword argument on an SDK call is near-certain
+evidence of the API field, while the same token in a comment is nearly none.
+Phase 3 turns those weights into confidence scores — see
+[ADR-015](docs/decisions.md).
+
+Text search remains available and is a real implementation, not a stub: ripgrep
+when installed, a pure-Python scanner when not, both held to the same contract
+and asserted to produce identical results.
+
+```bash
+uv run rewire analyze ./repo --json | jq '.stats'
+uv run rewire search ./repo max_tokens --mode ast --kind keyword_argument
+uv run rewire search ./repo 'max_\w+' --mode text --regex
+```
+
 ## Verify your environment
 
 ```bash
@@ -210,6 +268,13 @@ Recorded in [`docs/decisions.md`](docs/decisions.md). In short:
 - **Unresolvable references are errors, not empty schemas.** Treating an
   unreadable `$ref` as `{}` makes two different documents compare equal — the
   one failure mode a breaking-change detector must never have.
+- **Gaps are visible, never silent.** An unparseable file stays in the index
+  carrying its error; an oversized repository is refused rather than truncated.
+  Both protect the same invariant: Rewire must never report "no usages found"
+  for code it did not read.
+- **Repository content is untrusted.** Symlinks are never followed, file and
+  total-size limits are enforced, and `setup.py` is not executed to read its
+  dependencies.
 - **The agent cannot grade itself.** Success is defined by sandbox evidence
   (tests, types, lints), never by the model's own claim.
 - **Repository content is untrusted data.** Code Rewire reads may contain prompt
@@ -232,8 +297,16 @@ Tracked honestly in [docs/roadmap.md](docs/roadmap.md). As of Phase 1:
 - **Composition keywords are compared, not reasoned about.** Deciding whether
   two `oneOf` branches are compatible is a subtyping problem; Rewire reports the
   change and declines to guess at its severity beyond "potentially breaking".
-- **No repository analysis yet**, so nothing yet connects a detected change to
-  the code it affects. That is Phase 2.
+- **Repository analysis is Python-only.** No JavaScript, TypeScript, Go or Java;
+  tree-sitter is not yet wired in.
+- **No type inference**, so a client obtained from a factory function
+  (`get_client().create()`) is not traced to its library.
+- **No cross-file call graph.** A call to a locally defined wrapper is recorded
+  but not followed into the wrapper's body.
+- **No index caching** — every command reparses the repository from scratch.
+- **Nothing yet joins a detected API change to an affected location.** Phase 1
+  knows what changed and Phase 2 knows where the code is; connecting them is
+  Phase 3.
 
 ## Licence
 

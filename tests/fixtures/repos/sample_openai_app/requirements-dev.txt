@@ -1,0 +1,5 @@
+# Extra tooling not declared in pyproject.
+mypy>=1.11
+types-requests
+-e .
+https://example.test/wheels/legacy-1.0.whl

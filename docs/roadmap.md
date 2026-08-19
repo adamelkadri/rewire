@@ -10,7 +10,7 @@ Legend: **done** · *in progress* · planned
 |-------|-----------|--------|
 | 0 | Project foundation: packaging, settings, logging, errors, preflight, CI | **done** |
 | 1 | API change detection (OpenAPI diff, breaking-change classification) | **done** |
-| 2 | Repository analysis (AST index, symbols, imports, usages) | planned |
+| 2 | Repository analysis (AST index, symbols, imports, usages) | **done** |
 | 3 | Impact analysis (change × repo → ranked affected locations) | planned |
 | 4 | First coding agent (tool-restricted, produces candidate patches only) | planned |
 | 5 | Docker sandbox (isolated execution, resource limits, verification) | planned |
@@ -30,6 +30,39 @@ Legend: **done** · *in progress* · planned
 
 Milestones: **0–3** core intelligence · **4–7** working agent · **8–10** measured
 agent · **11–18** production product.
+
+## What Phase 2 delivers
+
+- `rewire analyze PATH` — a deterministic index of a repository's Python code:
+  imports, classes, functions, methods, module-level variables, call sites,
+  name references, environment reads, declared dependencies and entry points.
+- `rewire search PATH PATTERN` — the same name looked up two ways, by parsing
+  and by text search, shown side by side.
+- Name resolution that follows imports, aliases, assignment chains and `self.x`
+  instance attributes, so three different spellings of one SDK call all answer
+  the same query.
+- Graded reference kinds (keyword argument, dict key, subscript, parameter,
+  attribute, name, string literal), each carrying the evidence weight Phase 3
+  will turn into a confidence score.
+- Two interchangeable text-search backends: ripgrep when installed, and a pure
+  Python scanner when not. Both are held to the same contract and asserted to
+  agree.
+- Safety limits for untrusted repositories: symlinks never followed, per-file
+  and total size caps, file-count cap, ignored build and dependency directories.
+- A sample application fixture that calls the OpenAI SDK three different ways,
+  contains an unparseable module, and hides a decoy `openai` package inside
+  `.venv/`.
+
+## What Phase 2 explicitly does not deliver
+
+- **Python only.** No JavaScript, TypeScript, Go or Java analysis; tree-sitter
+  is not yet wired in.
+- No type inference, so a client obtained from a factory function is not traced.
+- No cross-file call graph: a call to a locally defined wrapper is recorded, but
+  not followed into the wrapper's own body.
+- No index caching — every run reparses from scratch.
+- Nothing yet joins a detected API change to an affected location. That is
+  Phase 3.
 
 ## What Phase 1 delivers
 
@@ -83,6 +116,23 @@ agent · **11–18** production product.
   reads it yet.
 - No Git or GitHub operations, no HTTP API, no dashboard.
 - No evaluation datasets or published metrics.
+
+## Known technical debt carried out of Phase 2
+
+- Reference evidence weights are hand-assigned constants, not fitted to data.
+  Phase 8 should replace them with values chosen from labelled impact examples.
+- Binding resolution is last-write-wins per scope. A name rebound part-way
+  through a function resolves to whichever assignment the walk saw most
+  recently, which is right for the common case and wrong for genuinely
+  polymorphic code.
+- `RepositoryIndex` is held entirely in memory and rebuilt on every command.
+  `Settings.index_dir` exists for a cache that does not yet exist (Phase 17).
+- Relative imports (`from . import x`) are recorded but never resolved, so calls
+  through them stay unresolved. Resolving them needs a package-root inference
+  step that has not been written.
+- `module_path_for` does not strip source roots, so a file at `src/pkg/mod.py`
+  gets the module path `src.pkg.mod` rather than `pkg.mod`. Consistent, but not
+  what the interpreter would call it.
 
 ## Known technical debt carried out of Phase 1
 
