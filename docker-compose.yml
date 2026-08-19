@@ -1,0 +1,47 @@
+name: rewire
+
+services:
+  rewire:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rewire:dev
+    environment:
+      REWIRE_ENVIRONMENT: local
+      REWIRE_LOG_FORMAT: json
+      REWIRE_DATA_DIR: /app/.rewire
+      # Uncomment to run against Postgres instead of the default SQLite file.
+      # REWIRE_DATABASE_URL: postgresql+asyncpg://rewire:rewire@postgres:5432/rewire
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - .:/app
+      # Sandboxes are sibling containers launched on the host daemon, so Rewire
+      # needs the socket. This grants host-root-equivalent power: it is a
+      # development convenience, never a production deployment pattern.
+      - /var/run/docker.sock:/var/run/docker.sock
+    entrypoint: []
+    command: ["rewire", "doctor"]
+
+  # Not started by default. Phases 0-12 run on SQLite; bring this up with
+  # `docker compose --profile postgres up -d postgres` when Phase 13 needs it.
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    environment:
+      POSTGRES_USER: rewire
+      POSTGRES_PASSWORD: rewire
+      POSTGRES_DB: rewire
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rewire -d rewire"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:

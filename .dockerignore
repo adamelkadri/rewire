@@ -1,0 +1,15 @@
+.git/
+.venv/
+venv/
+.rewire/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage*
+.env
+.env.*
+!.env.example
+.DS_Store
