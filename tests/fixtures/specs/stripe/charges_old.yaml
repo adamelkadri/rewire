@@ -1,0 +1,46 @@
+# Stripe-style migration: the Charges API gives way to Payment Intents, and
+# `POST /v1/charges/{charge}/refund` moves to a top-level `/v1/refunds`.
+openapi: 3.0.3
+info: { title: Stripe API, version: "2020-08-27" }
+paths:
+  /v1/charges:
+    get:
+      operationId: listCharges
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, maximum: 100 } }
+        - { name: customer, in: query, schema: { type: string } }
+      responses:
+        "200": { description: OK }
+    post:
+      operationId: createCharge
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [amount, currency, source]
+              properties:
+                amount: { type: integer }
+                currency: { type: string }
+                source: { type: string }
+                description: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, amount, status]
+                properties:
+                  id: { type: string }
+                  amount: { type: integer }
+                  status: { type: string, enum: [succeeded, pending, failed] }
+  /v1/charges/{charge}/refund:
+    post:
+      operationId: refundCharge
+      parameters:
+        - { name: charge, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: OK }

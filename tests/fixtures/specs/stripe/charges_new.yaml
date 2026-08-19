@@ -1,0 +1,55 @@
+openapi: 3.0.3
+info: { title: Stripe API, version: "2024-06-20" }
+paths:
+  /v1/charges:
+    get:
+      operationId: listCharges
+      deprecated: true
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, maximum: 50 } }
+        - { name: customer, in: query, deprecated: true, schema: { type: string } }
+      responses:
+        "200": { description: OK }
+  /v1/payment_intents:
+    post:
+      operationId: createPaymentIntent
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [amount, currency, payment_method]
+              properties:
+                amount: { type: integer }
+                currency: { type: string }
+                payment_method: { type: string }
+                description: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, amount, status]
+                properties:
+                  id: { type: string }
+                  amount: { type: integer }
+                  status:
+                    type: string
+                    enum: [requires_payment_method, processing, succeeded, canceled]
+  /v1/refunds:
+    post:
+      operationId: createRefund
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [charge]
+              properties:
+                charge: { type: string }
+      responses:
+        "200": { description: OK }

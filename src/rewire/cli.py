@@ -9,7 +9,9 @@ exist.
 from __future__ import annotations
 
 import json
-from typing import Annotated
+from enum import StrEnum
+from pathlib import Path
+from typing import Annotated, assert_never
 
 import typer
 from rich.console import Console
@@ -17,6 +19,7 @@ from rich.markup import escape
 from rich.table import Table
 
 from rewire.__version__ import __version__
+from rewire.changes import ApiChange, ChangeReport, Severity, diff_specs, load_spec
 from rewire.core.config import LogLevel, Settings, get_settings
 from rewire.core.doctor import CheckStatus, DoctorReport, run_checks
 from rewire.core.errors import RewireError
@@ -41,6 +44,21 @@ _STATUS_MARKUP: dict[CheckStatus, str] = {
     CheckStatus.WARN: "[yellow]warn[/yellow]",
     CheckStatus.FAIL: "[red]fail[/red]",
 }
+
+_SEVERITY_MARKUP: dict[Severity, str] = {
+    Severity.BREAKING: "[red]breaking[/red]",
+    Severity.POTENTIALLY_BREAKING: "[yellow]potentially[/yellow]",
+    Severity.NON_BREAKING: "[green]non-breaking[/green]",
+}
+
+
+class FailOn(StrEnum):
+    """Threshold at which ``api-diff`` exits non-zero, for use in CI."""
+
+    NEVER = "never"
+    BREAKING = "breaking"
+    POTENTIALLY_BREAKING = "potentially-breaking"
+    ANY = "any"
 
 
 def _version_callback(value: bool) -> None:
@@ -116,6 +134,99 @@ def doctor(
         _render_report(report)
 
     if not report.ok:
+        raise typer.Exit(code=EXIT_FAILURE)
+
+
+def _should_fail(report: ChangeReport, fail_on: FailOn) -> bool:
+    match fail_on:
+        case FailOn.NEVER:
+            return False
+        case FailOn.BREAKING:
+            return report.summary.breaking > 0
+        case FailOn.POTENTIALLY_BREAKING:
+            return report.summary.breaking + report.summary.potentially_breaking > 0
+        case FailOn.ANY:
+            return report.summary.total > 0
+        case _:  # pragma: no cover - mypy proves the match above is exhaustive
+            assert_never(fail_on)
+
+
+def _render_change_report(report: ChangeReport, changes: list[ApiChange]) -> None:
+    if not changes:
+        console.print("[green]No changes detected at the requested severity.[/green]")
+        return
+
+    # One table per endpoint. Endpoint paths are the widest column by far and
+    # repeat on every row, which squeezes the change type down to an ellipsis in
+    # a normal-width terminal.
+    grouped: dict[str, list[ApiChange]] = {}
+    for change in changes:
+        grouped.setdefault(change.endpoint or "(specification)", []).append(change)
+
+    for endpoint, endpoint_changes in grouped.items():
+        table = Table(title=endpoint, title_justify="left", title_style="bold cyan")
+        table.add_column("Severity", no_wrap=True)
+        table.add_column("Change", style="bold", no_wrap=True)
+        table.add_column("Field", overflow="fold")
+
+        for change in endpoint_changes:
+            field = change.field_path or "-"
+            if change.replacement:
+                field = f"{field} [cyan]->[/cyan] {escape(change.replacement)}"
+            else:
+                field = escape(field)
+            table.add_row(_SEVERITY_MARKUP[change.severity], escape(change.type.value), field)
+        console.print(table)
+
+    summary = report.summary
+    console.print(
+        f"\n[bold]{summary.total}[/bold] change(s) across "
+        f"[bold]{summary.endpoints_affected}[/bold] endpoint(s): "
+        f"[red]{summary.breaking} breaking[/red], "
+        f"[yellow]{summary.potentially_breaking} potentially breaking[/yellow], "
+        f"[green]{summary.non_breaking} non-breaking[/green]"
+    )
+
+
+@app.command(name="api-diff")
+def api_diff(
+    old_spec: Annotated[
+        Path,
+        typer.Argument(exists=True, dir_okay=False, readable=True, help="Previous OpenAPI spec."),
+    ],
+    new_spec: Annotated[
+        Path,
+        typer.Argument(exists=True, dir_okay=False, readable=True, help="New OpenAPI spec."),
+    ],
+    as_json: Annotated[bool, typer.Option("--json", help="Emit the full report as JSON.")] = False,
+    min_severity: Annotated[
+        Severity,
+        typer.Option("--min-severity", help="Hide changes less severe than this."),
+    ] = Severity.NON_BREAKING,
+    fail_on: Annotated[
+        FailOn,
+        typer.Option("--fail-on", help="Exit non-zero when changes at this level are found."),
+    ] = FailOn.NEVER,
+) -> None:
+    """Compare two OpenAPI specifications and report the changes between them.
+
+    Fully deterministic: no LLM is involved, so the same pair of specifications
+    always produces the same report. Use ``--fail-on breaking`` to turn this into
+    a CI gate.
+    """
+    report = diff_specs(load_spec(old_spec), load_spec(new_spec))
+    selected = report.filter(min_severity)
+
+    if as_json:
+        payload = report.model_dump(mode="json", exclude_none=True)
+        payload["changes"] = [
+            change.model_dump(mode="json", exclude_none=True) for change in selected
+        ]
+        console.print_json(json.dumps(payload))
+    else:
+        _render_change_report(report, selected)
+
+    if _should_fail(report, fail_on):
         raise typer.Exit(code=EXIT_FAILURE)
 
 

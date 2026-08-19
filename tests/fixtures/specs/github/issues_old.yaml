@@ -1,0 +1,33 @@
+# GitHub-style migration exercising nullability, pagination and required-flag
+# changes on a resource that is read far more often than written.
+openapi: 3.0.3
+info: { title: GitHub API, version: "2022-11-28" }
+paths:
+  /repos/{owner}/{repo}/issues:
+    get:
+      operationId: listRepoIssues
+      parameters:
+        - { name: owner, in: path, required: true, schema: { type: string } }
+        - { name: repo, in: path, required: true, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: per_page, in: query, schema: { type: integer, maximum: 100 } }
+        - name: state
+          in: query
+          schema: { type: string, enum: [open, closed, all] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [id, number, title, state, assignee]
+                  properties:
+                    id: { type: integer }
+                    number: { type: integer }
+                    title: { type: string }
+                    state: { type: string, enum: [open, closed] }
+                    assignee: { type: object, nullable: true }
+                    body: { type: string, nullable: true }

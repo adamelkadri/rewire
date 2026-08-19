@@ -14,7 +14,7 @@ reasoning and code generation are genuinely required, and it is never permitted
 to declare its own success: correctness is decided by tests, type checks and
 lints executed in a sandbox.
 
-> **Status: Phase 0 — project foundation.** The build is incremental and each
+> **Status: Phase 1 — API change detection.** The build is incremental and each
 > phase is finished, tested and documented before the next begins. See
 > [docs/roadmap.md](docs/roadmap.md) for what exists today and what does not.
 > Nothing in this README describes behaviour that is not implemented.
@@ -74,6 +74,68 @@ With plain pip:
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
+```
+
+## Detect breaking API changes
+
+```bash
+uv run rewire api-diff old-spec.yaml new-spec.yaml
+```
+
+Compares two OpenAPI 3.x documents (YAML or JSON) and reports every difference,
+graded by how much downstream code it breaks. Fully deterministic — no LLM, no
+network, identical output every run.
+
+Against the bundled fixture modelling OpenAI's `max_tokens` migration:
+
+```text
+POST /v1/chat/completions
+┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Severity     ┃ Change                         ┃ Field                        ┃
+┡━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ breaking     │ request_field_removed          │ max_tokens ->                │
+│              │                                │ max_completion_tokens        │
+│ breaking     │ response_field_became_optional │ usage.completion_tokens      │
+│ potentially  │ response_schema_changed        │ choices[].finish_reason      │
+│ non-breaking │ request_schema_changed         │ messages[].role              │
+└──────────────┴────────────────────────────────┴──────────────────────────────┘
+```
+
+Three things in that output are worth calling out, because they are where a
+naive differ gets it wrong:
+
+- **`max_tokens -> max_completion_tokens`.** A raw diff sees one field removed
+  and an unrelated one added. Rewire links them by token-overlap similarity
+  gated on schema compatibility, so the downstream migration is
+  "replace X with Y" rather than two disconnected facts.
+- **`usage.completion_tokens` became optional → breaking.** Nothing was removed
+  and no type changed, so most tools grade this harmless. It means the field may
+  now be absent from a response the client already reads, making every unguarded
+  access a latent `KeyError`.
+- **`finish_reason` gained an enum value → potentially breaking, but
+  `messages[].role` gaining one → non-breaking.** The same edit, graded
+  differently by direction: a client can safely *send* a value the server already
+  accepted, but may not handle *receiving* one it has never seen.
+
+That asymmetry is systematic, not case-by-case — see
+[ADR-010](docs/decisions.md).
+
+Machine-readable output and CI gating:
+
+```bash
+uv run rewire api-diff old.yaml new.yaml --json
+uv run rewire api-diff old.yaml new.yaml --min-severity breaking
+uv run rewire api-diff old.yaml new.yaml --fail-on breaking   # exits 1 in CI
+```
+
+```json
+{
+  "type": "request_field_removed",
+  "severity": "breaking",
+  "endpoint": "POST /v1/chat/completions",
+  "field": "max_tokens",
+  "replacement": "max_completion_tokens"
+}
 ```
 
 ## Verify your environment
@@ -142,6 +204,12 @@ Recorded in [`docs/decisions.md`](docs/decisions.md). In short:
 - **Deterministic before probabilistic.** Spec diffing and impact analysis are
   AST/static analysis, not LLM calls — they are cheaper, faster, reproducible
   and testable against ground truth.
+- **Severity is direction-aware.** A client produces requests and consumes
+  responses, so the two vary oppositely. The grading is a lookup table, and a
+  test fails if a new edit kind is added without a decision for both directions.
+- **Unresolvable references are errors, not empty schemas.** Treating an
+  unreadable `$ref` as `{}` makes two different documents compare equal — the
+  one failure mode a breaking-change detector must never have.
 - **The agent cannot grade itself.** Success is defined by sandbox evidence
   (tests, types, lints), never by the model's own claim.
 - **Repository content is untrusted data.** Code Rewire reads may contain prompt
@@ -152,9 +220,20 @@ Recorded in [`docs/decisions.md`](docs/decisions.md). In short:
 
 ## Limitations
 
-Tracked honestly in [docs/roadmap.md](docs/roadmap.md). At Phase 0 the project
-is a foundation: configuration, logging, errors, preflight checks, packaging,
-tooling and CI-ready test infrastructure. No migration capability exists yet.
+Tracked honestly in [docs/roadmap.md](docs/roadmap.md). As of Phase 1:
+
+- **OpenAPI 3.x only.** Swagger 2.0 is rejected with a message telling you to
+  convert first. GraphQL, gRPC and hand-written SDK changelogs are not supported.
+- **Single-file specs only.** External and remote `$ref`s raise an error rather
+  than resolving; bundle multi-file specs first.
+- **Renames sharing no tokens are not detected.** Stripe's `charge` →
+  `payment_intent` is invisible to a name-based heuristic, and guessing would be
+  worse than reporting the removal and addition separately.
+- **Composition keywords are compared, not reasoned about.** Deciding whether
+  two `oneOf` branches are compatible is a subtyping problem; Rewire reports the
+  change and declines to guess at its severity beyond "potentially breaking".
+- **No repository analysis yet**, so nothing yet connects a detected change to
+  the code it affects. That is Phase 2.
 
 ## Licence
 

@@ -1,0 +1,33 @@
+openapi: 3.0.3
+info: { title: GitHub API, version: "2024-11-28" }
+paths:
+  /repos/{owner}/{repo}/issues:
+    get:
+      operationId: listRepoIssues
+      parameters:
+        - { name: owner, in: path, required: true, schema: { type: string } }
+        - { name: repo, in: path, required: true, schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer } }
+        - { name: per_page, in: query, schema: { type: integer, maximum: 100 } }
+        - name: state
+          in: query
+          schema: { type: string, enum: [open, closed] }
+        - { name: since, in: query, required: true, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [id, number, title, state]
+                  properties:
+                    id: { type: integer }
+                    number: { type: integer }
+                    title: { type: string }
+                    state: { type: string, enum: [open, closed] }
+                    assignee: { type: object, nullable: true }
+                    body: { type: string, nullable: true }
+                    state_reason: { type: string, nullable: true }

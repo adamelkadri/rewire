@@ -1,0 +1,11 @@
+openapi: "3.0.3"
+info: { title: External, version: "1" }
+paths:
+  /items:
+    get:
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "shared/models.yaml#/components/schemas/Item" }

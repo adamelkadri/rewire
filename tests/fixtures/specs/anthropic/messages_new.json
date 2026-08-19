@@ -1,0 +1,76 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Anthropic Messages API", "version": "2024-10-22" },
+  "paths": {
+    "/v1/messages": {
+      "parameters": [
+        { "name": "anthropic-version", "in": "header", "required": true, "schema": { "type": "string" } },
+        { "name": "anthropic-beta", "in": "header", "schema": { "type": "string" } }
+      ],
+      "post": {
+        "operationId": "createMessage",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["model", "messages", "max_tokens"],
+                "properties": {
+                  "model": { "type": "string" },
+                  "messages": { "type": "array", "items": { "type": "object" } },
+                  "max_tokens": { "type": "integer" },
+                  "stop_sequences": { "type": "array", "items": { "type": "string" } },
+                  "system": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["id", "content", "stop_reason"],
+                  "properties": {
+                    "id": { "type": "string" },
+                    "content": { "type": "array", "items": { "type": "object" } },
+                    "stop_reason": {
+                      "type": "string",
+                      "enum": ["end_turn", "max_tokens", "stop_sequence", "tool_use"]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/complete": {
+      "post": {
+        "operationId": "createCompletion",
+        "deprecated": true,
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["prompt", "model"],
+                "properties": {
+                  "prompt": { "type": "string" },
+                  "model": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": { "200": { "description": "OK" } }
+      }
+    }
+  }
+}

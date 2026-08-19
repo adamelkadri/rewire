@@ -28,6 +28,15 @@ def _isolate_environment(monkeypatch: pytest.MonkeyPatch) -> None:
             monkeypatch.delenv(key, raising=False)
 
 
+SPECS_DIR = Path(__file__).parent / "fixtures" / "specs"
+
+
+@pytest.fixture
+def specs() -> Path:
+    """Directory holding the OpenAPI fixture specifications."""
+    return SPECS_DIR
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     """Settings pointed at an isolated temporary data directory."""

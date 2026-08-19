@@ -144,3 +144,91 @@ that state.
 
 **Cost.** `doctor` is slower than a `PATH` scan, and must handle hangs — hence
 the bounded timeout.
+
+---
+
+## ADR-010 — Severity is direction-aware
+
+**Decision.** Schema changes are graded against a variance table keyed by
+*(direction, edit)*, where direction is request or response. The same structural
+edit gets different severities in each.
+
+**Why.** A client is a producer of requests and a consumer of responses, so the
+two directions vary oppositely. The case that motivated the table:
+
+```text
+usage.completion_tokens moves out of `required` in a 200 response
+```
+
+Nothing was removed and nothing changed type, so a structural differ reports a
+weakening and most tools grade it non-breaking. For the client it means the field
+may now be absent, and every unguarded read of it is a latent `KeyError`. It is
+breaking. The mirror image — a request field becoming optional — is genuinely
+harmless. Encoding this as a lookup table rather than branching logic makes it
+inspectable, and `test_variance_table_covers_every_combination` fails if a new
+edit kind is added without a decision for both directions.
+
+**Cost.** Rewire must know which direction it is looking at, so request and
+response schemas cannot share a code path that has lost that context. The table
+also encodes judgement calls (response enum widening is *potentially* breaking,
+not breaking) that reasonable engineers could grade differently.
+
+---
+
+## ADR-011 — Renames are inferred from names, and only confidently
+
+**Decision.** A removal and an addition on the same operation are linked as a
+rename when token-overlap similarity, gated by schema compatibility, clears a
+threshold. Below it, they stay reported as two separate changes.
+
+**Why.** A raw diff reports `max_tokens` removed and `max_completion_tokens`
+added as unrelated events, but the migration to generate is "replace one with
+the other", and Phase 3 needs the replacement name to rank call sites. Pairing
+is deterministic: no model call, no embedding, and the greedy matching is
+ordered by score with name tiebreaks so it cannot depend on dictionary ordering.
+
+Schema compatibility is a *multiplier*, not a bonus. An earlier version added it
+to the score, and paired `max_tokens` with `temperature` because both were
+integers — most API fields are `string` or `integer`, so agreeing on type is no
+evidence at all. Character similarity is trusted only above 0.8, where it means
+"almost the same string" (`item` → `items`); at moderate values it fires on
+`user` → `customer`, which share four letters and no meaning.
+
+**Cost.** Renames that share no tokens are not detected. Stripe's `charge` →
+`payment_intent` is invisible to any name-based heuristic. That is the intended
+failure direction: a missed rename degrades to two honest changes, while a wrong
+one sends the agent to edit the wrong symbol.
+
+---
+
+## ADR-012 — JSON Schema stays a plain mapping
+
+**Decision.** Schemas are carried as `dict[str, Any]` after `$ref` resolution
+rather than modelled in Pydantic.
+
+**Why.** The dialect is large, evolving and heavily vendor-extended in practice.
+A partial model silently drops the keywords it does not know, and a dropped
+keyword in a breaking-change detector is a missed breaking change. The
+comparison logic in `schema_diff` is explicit about every keyword it understands,
+and unknown keywords are visible in the raw mapping rather than erased.
+
+**Cost.** No type safety inside schemas; `schema_diff` must guard against
+malformed sub-schemas itself, which `test_malformed_specs` exercises.
+
+---
+
+## ADR-013 — Unresolvable `$ref`s are an error, not an empty schema
+
+**Decision.** External/remote `$ref`s and missing internal targets raise
+`SpecParseError`. Cycles resolve to an opaque marker compared by target name.
+
+**Why.** The tempting shortcut is to treat an unresolvable reference as `{}`.
+That makes two *different* documents compare equal — the exact false negative a
+breaking-change detector must never have. Failing loudly is the only safe
+behaviour. Cycles are different: they are legitimate and common (a tree node
+containing children of its own type), so they get a marker that terminates
+resolution while still being comparable.
+
+**Cost.** Multi-file specifications cannot be loaded. Bundling them first is a
+one-command preprocessing step, and supporting them properly means a fetch
+policy for remote URLs, which is a security decision for Phase 16.

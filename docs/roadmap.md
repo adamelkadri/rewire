@@ -9,7 +9,7 @@ Legend: **done** · *in progress* · planned
 | Phase | Capability | Status |
 |-------|-----------|--------|
 | 0 | Project foundation: packaging, settings, logging, errors, preflight, CI | **done** |
-| 1 | API change detection (OpenAPI diff, breaking-change classification) | planned |
+| 1 | API change detection (OpenAPI diff, breaking-change classification) | **done** |
 | 2 | Repository analysis (AST index, symbols, imports, usages) | planned |
 | 3 | Impact analysis (change × repo → ranked affected locations) | planned |
 | 4 | First coding agent (tool-restricted, produces candidate patches only) | planned |
@@ -30,6 +30,35 @@ Legend: **done** · *in progress* · planned
 
 Milestones: **0–3** core intelligence · **4–7** working agent · **8–10** measured
 agent · **11–18** production product.
+
+## What Phase 1 delivers
+
+- `rewire api-diff OLD NEW` — deterministic comparison of two OpenAPI 3.x
+  documents in YAML or JSON, with table, `--json`, `--min-severity` and
+  `--fail-on` output modes.
+- Normalisation that collapses equivalent spellings before comparing: internal
+  `$ref` inlining, path-level parameter inheritance, and OpenAPI 3.0 `nullable`
+  treated as equal to 3.1's union-with-`null`.
+- 36 typed change kinds across operations, parameters, request bodies and
+  responses, each carrying the endpoint, field path and replacement needed to
+  locate it in a repository.
+- Direction-aware severity: a request/response variance table, tested for
+  completeness, that grades the same structural edit differently depending on
+  which way the data flows.
+- Deterministic rename linking (`max_tokens` → `max_completion_tokens`) using
+  token-overlap similarity gated on schema compatibility.
+- Defensive loading of untrusted specs: size cap, `SafeLoader`, bounded YAML
+  alias expansion, `$ref` cycle and depth limits, and hard errors for
+  unresolvable references.
+- Fixtures modelling four real migrations (OpenAI, Anthropic, Stripe, GitHub)
+  with assertions on what a correct detector must report.
+
+## What Phase 1 explicitly does not deliver
+
+- Nothing that connects a change to source code — that is Phase 2/3.
+- No Swagger 2.0, GraphQL, gRPC or SDK-changelog input.
+- No multi-file specification support.
+- No semantic reasoning about `oneOf`/`anyOf`/`allOf` compatibility.
 
 ## What Phase 0 delivers
 
@@ -54,6 +83,22 @@ agent · **11–18** production product.
   reads it yet.
 - No Git or GitHub operations, no HTTP API, no dashboard.
 - No evaluation datasets or published metrics.
+
+## Known technical debt carried out of Phase 1
+
+- Severity for composition keywords (`oneOf`/`anyOf`/`allOf`) is a blanket
+  "potentially breaking". Grading them properly is a subtyping problem and is
+  deliberately not attempted.
+- The rename threshold (0.5) and the character-similarity gate (0.8) are tuned
+  against the bundled fixtures, not measured against a labelled dataset. Phase 8
+  should replace those constants with values chosen from precision/recall on
+  real migrations.
+- `ChangeType` has 36 members and will grow. The mapping from schema findings to
+  change types is table-driven, but the tables are not exhaustively asserted the
+  way the severity table is.
+- Response bodies are modelled with `Body.required = True` unconditionally,
+  since OpenAPI has no notion of an optional response. Harmless today, but it
+  means `Body` carries a field that is meaningless in one of its two uses.
 
 ## Known technical debt carried out of Phase 0
 
