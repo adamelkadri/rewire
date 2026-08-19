@@ -20,33 +20,39 @@ repos:
       - id: mixed-line-ending
       - id: detect-private-key
 
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.5
-    hooks:
-      - id: ruff-check
-        args: ["--fix"]
-      - id: ruff-format
-
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.18.2
-    hooks:
-      - id: mypy
-        files: ^src/
-        # The hook runs in its own isolated environment, so every dependency
-        # mypy needs to resolve imports must be declared here as well as in
-        # pyproject.toml.
-        additional_dependencies:
-          - pydantic>=2.9
-          - pydantic-settings>=2.5
-          - structlog>=24.4
-          - typer>=0.12
-          - types-pyyaml>=6.0
-
+  # Ruff, mypy and pytest run from the project's own environment rather than
+  # from pinned mirror repositories. Mirrors pin their own tool versions
+  # independently of `uv.lock`, so a hook could pass locally while CI failed on
+  # a newer release -- which is exactly what happened: three different ruff
+  # versions were in play at once, and the one pre-commit used did not format
+  # Python blocks inside Markdown. Sourcing every tool from `uv.lock` means only
+  # one version can exist.
   - repo: local
     hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --frozen ruff check --fix --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --frozen ruff format --force-exclude
+        language: system
+        types_or: [python, pyi, markdown]
+        require_serial: true
+
+      - id: mypy
+        name: mypy (strict)
+        entry: uv run --frozen mypy src
+        language: system
+        files: ^src/
+        pass_filenames: false
+
       - id: pytest
         name: pytest (unit tests)
-        entry: pytest tests/unit -q
+        entry: uv run --frozen pytest tests/unit -q
         language: system
         pass_filenames: false
         types: [python]

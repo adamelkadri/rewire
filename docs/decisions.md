@@ -245,9 +245,9 @@ fallback, not as the primary mechanism.
 **Why.** The same SDK call has many spellings:
 
 ```python
-client.chat.completions.create(...)        # module-level instance
+client.chat.completions.create(...)  # module-level instance
 self._client.chat.completions.create(...)  # attribute assigned in __init__
-oai.chat.completions.create(...)           # aliased module import
+oai.chat.completions.create(...)  # aliased module import
 ```
 
 A grep for any one of them misses the others, and a grep for

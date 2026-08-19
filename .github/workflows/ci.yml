@@ -32,15 +32,16 @@ jobs:
       - name: Install ripgrep
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep
 
+      # `uv sync --locked` installs exactly what `uv.lock` pins and fails if the
+      # lock is stale. A plain `uv pip install` re-resolves instead, which let
+      # CI pick up a newer ruff than the one used locally and fail on formatting
+      # nobody could reproduce.
       - name: Create environment
         run: |
           uv python install "${{ matrix.python-version }}"
-          uv venv --python "${{ matrix.python-version }}"
+          uv sync --locked --all-extras --python "${{ matrix.python-version }}"
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
           echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
-
-      - name: Install dependencies
-        run: uv pip install -e ".[dev]"
 
       # The matrix is only meaningful if each job really runs its own version.
       # An earlier revision silently ran 3.12 for both, so this is asserted.

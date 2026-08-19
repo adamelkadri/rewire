@@ -63,11 +63,13 @@ Requires **Python 3.12+**, **Git**, and **Docker** (for sandboxed verification
 from Phase 5 onward). [`uv`](https://docs.astral.sh/uv/) is recommended.
 
 ```bash
-git clone <this-repo> && cd rewire
-uv venv --python 3.12
-uv pip install -e ".[dev]"
+git clone https://github.com/adamelkadri/rewire && cd rewire
+uv sync --locked --all-extras
 cp .env.example .env          # optional; every value has a safe default
 ```
+
+`--locked` installs exactly the versions in `uv.lock`, which is what CI does
+too, so local results and CI results cannot diverge.
 
 With plain pip:
 
@@ -152,9 +154,9 @@ LLM, no embeddings — Python's own AST.
 The reason it parses rather than greps is that one SDK call has many spellings:
 
 ```python
-client.chat.completions.create(...)         # module-level instance
-self._client.chat.completions.create(...)   # attribute assigned in __init__
-oai.chat.completions.create(...)            # aliased module import
+client.chat.completions.create(...)  # module-level instance
+self._client.chat.completions.create(...)  # attribute assigned in __init__
+oai.chat.completions.create(...)  # aliased module import
 ```
 
 Rewire tracks what each name is bound to — through imports, aliases, assignment
@@ -233,10 +235,14 @@ API keys are held as `SecretStr` and are redacted in logs, `repr` and
 uv run pytest                     # tests
 uv run pytest --cov=src/rewire    # tests with coverage
 uv run ruff check .               # lint
-uv run ruff format .              # format
+uv run ruff format --check .      # formatting, including Python in Markdown
 uv run mypy src                   # type check (strict)
 uv run pre-commit install         # run all of the above on commit
 ```
+
+Every pre-commit hook runs from the project environment rather than from a
+pinned mirror, so there is exactly one version of each tool and a hook cannot
+pass locally while CI fails.
 
 Docker Compose provides a reproducible dev container and a Postgres instance for
 later phases. The service has an empty entrypoint, so pass the full command:
