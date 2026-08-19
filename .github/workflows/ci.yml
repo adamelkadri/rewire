@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   check:
+    name: check (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -25,8 +26,28 @@ jobs:
         with:
           enable-cache: true
 
+      # ripgrep is an optional dependency, but installing it means CI exercises
+      # both search backends and the test asserting they agree, rather than
+      # silently skipping eleven tests.
+      - name: Install ripgrep
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep
+
+      - name: Create environment
+        run: |
+          uv python install "${{ matrix.python-version }}"
+          uv venv --python "${{ matrix.python-version }}"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+
       - name: Install dependencies
-        run: uv pip install --system -e ".[dev]"
+        run: uv pip install -e ".[dev]"
+
+      # The matrix is only meaningful if each job really runs its own version.
+      # An earlier revision silently ran 3.12 for both, so this is asserted.
+      - name: Verify interpreter matches the matrix
+        run: |
+          python --version
+          python -c "import sys; assert '.'.join(map(str, sys.version_info[:2])) == '${{ matrix.python-version }}', sys.version"
 
       - name: Lint
         run: |
@@ -48,3 +69,20 @@ jobs:
         with:
           name: coverage
           path: coverage.xml
+
+  docker:
+    name: docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The image broke once before (the docker.io package stopped shipping the
+      # client binary), so it is built and its suite is run rather than assumed.
+      - name: Build image
+        run: docker build -t rewire:ci .
+
+      - name: Run the test suite inside the image
+        run: docker run --rm --entrypoint pytest rewire:ci -q
+
+      - name: Check the CLI starts
+        run: docker run --rm rewire:ci --version
