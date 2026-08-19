@@ -1,5 +1,9 @@
 # Rewire
 
+[![CI](https://github.com/adamelkadri/rewire/actions/workflows/ci.yml/badge.svg)](https://github.com/adamelkadri/rewire/actions/workflows/ci.yml)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](#licence)
+
 **An autonomous API migration and code-maintenance agent.**
 
 APIs and SDKs change. Downstream code breaks. Rewire detects breaking API

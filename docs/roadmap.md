@@ -161,8 +161,10 @@ agent · **11–18** production product.
 - The `docker.sock` mount in `docker-compose.yml` is host-root-equivalent. It is
   acceptable for local development and is called out in ADR-003; Phase 16 must
   revisit it before anything resembling a deployment.
-- The Docker image builds and its tests pass locally, but the image is not
-  yet built or exercised in GitHub Actions CI.
 - `docker compose run --rm rewire` relies on `group_add` to reach the Docker
   socket. The default gid 0 is correct for Docker Desktop; Linux hosts must
   set `DOCKER_GID`. This is documented but not auto-detected.
+- The GitHub Actions runner warns that `actions/checkout@v4`,
+  `actions/upload-artifact@v4` and `astral-sh/setup-uv@v5` target Node.js 20 and
+  are being forced onto Node.js 24. Harmless today; the actions need bumping
+  when their next majors land.
