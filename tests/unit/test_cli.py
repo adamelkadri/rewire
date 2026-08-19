@@ -112,3 +112,22 @@ def test_main_reports_domain_errors_without_traceback(
     assert "git_error" in stderr
     assert "detached head at [abc123]" in stderr
     assert "Traceback" not in stderr
+
+
+def test_doctor_table_does_not_swallow_bracketed_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    report = DoctorReport(
+        results=[
+            CheckResult(
+                name="docker",
+                status=CheckStatus.FAIL,
+                detail="cannot run [docker version]",
+                remedy="start the [daemon]",
+            )
+        ]
+    )
+    monkeypatch.setattr("rewire.cli.run_checks", lambda _settings: report)
+
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 1
+    assert "[docker version]" in result.stdout
+    assert "[daemon]" in result.stdout

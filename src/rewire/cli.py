@@ -80,7 +80,9 @@ def _render_report(report: DoctorReport) -> None:
     table.add_column("Detail", overflow="fold")
 
     for result in report.results:
-        table.add_row(result.name, _STATUS_MARKUP[result.status], result.detail)
+        # Details and remedies quote paths, flags and versions, any of which
+        # may contain square brackets that Rich would interpret as markup.
+        table.add_row(escape(result.name), _STATUS_MARKUP[result.status], escape(result.detail))
 
     console.print(table)
 
@@ -89,7 +91,7 @@ def _render_report(report: DoctorReport) -> None:
         console.print()
         console.print("[bold]Suggested fixes[/bold]")
         for result in remedies:
-            console.print(f"  - [{result.name}] {result.remedy}")
+            console.print(f"  - {escape(result.name)}: {escape(result.remedy or '')}")
 
 
 @app.command()

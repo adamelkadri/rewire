@@ -21,6 +21,12 @@ services:
       # needs the socket. This grants host-root-equivalent power: it is a
       # development convenience, never a production deployment pattern.
       - /var/run/docker.sock:/var/run/docker.sock
+    # The image runs as uid 1000, but the socket is owned by root (gid 0 under
+    # Docker Desktop, gid of the `docker` group on most Linux hosts). Joining
+    # that group is what makes the socket readable; override with
+    # `DOCKER_GID=$(stat -c %g /var/run/docker.sock) docker compose ...`.
+    group_add:
+      - "${DOCKER_GID:-0}"
     entrypoint: []
     command: ["rewire", "doctor"]
 

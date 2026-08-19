@@ -11,9 +11,11 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # git: branch/diff handling. ripgrep: fallback search backend.
-# docker-cli: talks to the host daemon via a mounted socket to launch sandboxes.
+# docker-cli: the client only -- it talks to the host daemon over the mounted
+# socket to launch sibling sandbox containers. The `docker.io` package ships
+# the runtime without the client on current Debian, so name the client package.
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y git ripgrep docker.io \
+    && apt-get install --no-install-recommends -y git ripgrep docker-cli \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

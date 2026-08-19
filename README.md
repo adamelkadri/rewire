@@ -119,10 +119,20 @@ uv run pre-commit install         # run all of the above on commit
 ```
 
 Docker Compose provides a reproducible dev container and a Postgres instance for
-later phases:
+later phases. The service has an empty entrypoint, so pass the full command:
 
 ```bash
-docker compose run --rm rewire pytest
+docker compose run --rm rewire pytest -q      # tests in the container
+docker compose run --rm rewire rewire doctor  # preflight in the container
+docker compose run --rm rewire                # default: rewire doctor
+```
+
+The container runs as a non-root user, so it needs to join the group that owns
+the Docker socket in order to launch sandboxes. That group is gid 0 under Docker
+Desktop and the `docker` group on most Linux hosts:
+
+```bash
+DOCKER_GID=$(stat -c %g /var/run/docker.sock) docker compose run --rm rewire
 ```
 
 ## Design decisions
