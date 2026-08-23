@@ -19,7 +19,13 @@ from rich.syntax import Syntax
 from rich.table import Table
 
 from rewire.__version__ import __version__
-from rewire.agents import AgentBudget, MigrationAgent, MigrationResult, Workspace
+from rewire.agents import (
+    AgentBudget,
+    CandidatePatch,
+    MigrationAgent,
+    MigrationResult,
+    Workspace,
+)
 from rewire.analyzers import (
     DiscoveryLimits,
     Reference,
@@ -51,6 +57,7 @@ from rewire.sandbox import (
     verify,
 )
 from rewire.sandbox import CheckStatus as SandboxCheckStatus
+from rewire.services import RepairOutcome, RepairPolicy, migrate_with_repair
 
 app = typer.Typer(
     name="rewire",
@@ -720,6 +727,65 @@ def _render_verification(report: VerificationReport) -> None:
     )
 
 
+def _write_diff(patch: CandidatePatch, target: Path | None) -> None:
+    """Write a patch's unified diff to a file, if one was asked for."""
+    if target is None or patch.is_empty:
+        return
+    target.write_text(patch.unified_diff(), encoding="utf-8")
+    console.print(f"[dim]wrote diff to {escape(str(target))}[/dim]")
+
+
+def _render_repair(outcome: RepairOutcome, *, show_diff: bool) -> None:
+    """Print the attempt-by-attempt story, then the evidence for the final one.
+
+    The per-attempt table is the point of this phase: it shows whether repair
+    changed the answer, which is the only way "the repair loop helps" stops
+    being an assertion.
+    """
+    table = Table(title="Attempts", title_justify="left")
+    table.add_column("#")
+    table.add_column("Files")
+    table.add_column("Verdict")
+    table.add_column("Tokens", justify="right")
+    table.add_column("Why", overflow="fold")
+
+    for attempt in outcome.attempts:
+        verdict = attempt.verdict
+        style = VERDICT_STYLE[verdict] if verdict else "red"
+        rendered = f"[{style}]{verdict.value}[/{style}]" if verdict else "[red]no patch[/red]"
+        reason = attempt.report.reason if attempt.report else attempt.result.summary.outcome
+        table.add_row(
+            str(attempt.number),
+            str(len(attempt.patch.files)),
+            rendered,
+            str(attempt.result.summary.usage.total_tokens),
+            escape(reason),
+        )
+    console.print()
+    console.print(table)
+
+    cost = f"${outcome.total_cost_usd:.4f}" if outcome.total_cost_usd is not None else "unknown"
+    console.print(
+        f"[dim]{len(outcome.attempts)} attempt(s), {outcome.total_tokens} tokens, "
+        f"cost {cost}, {outcome.duration_seconds:.1f}s — "
+        f"stopped because {escape(outcome.stopped_because)}[/dim]"
+    )
+    if outcome.repaired:
+        console.print(
+            "[green]Repair changed the outcome:[/green] the first attempt failed "
+            "verification and a later one passed it."
+        )
+
+    final = outcome.verified or outcome.final
+    if final is not None and final.report is not None:
+        _render_verification(final.report)
+
+    if show_diff and not outcome.patch.is_empty:
+        heading = "Verified diff" if outcome.verified else "Final candidate diff (unverified)"
+        console.print(f"\n[bold]{heading}[/bold]")
+        console.print(Syntax(outcome.patch.unified_diff(), "diff", theme="ansi_dark"))
+
+
 @app.command(name="verify")
 def verify_repo(
     repo: Annotated[
@@ -785,6 +851,16 @@ def propose(
     image: Annotated[
         str | None, typer.Option("--image", help="Docker image used for verification.")
     ] = None,
+    repair: Annotated[
+        bool,
+        typer.Option(
+            "--repair/--no-repair",
+            help="Feed sandbox failures back to the agent and retry. Implies --verify.",
+        ),
+    ] = False,
+    max_attempts: Annotated[
+        int, typer.Option("--max-attempts", min=1, max=10, help="Attempts allowed with --repair.")
+    ] = 3,
 ) -> None:
     """Ask the agent to propose a migration patch. Nothing is modified.
 
@@ -816,12 +892,30 @@ def propose(
         ),
         runs_dir=settings.runs_dir,
     )
-    result = agent.run(workspace=Workspace.open(repo), index=index, changes=changes, impact=impact)
+    workspace = Workspace.open(repo)
+    request = _verification_request(settings, image=image, timeout=None)
 
-    if write_patch_to is not None and not result.patch.is_empty:
-        write_patch_to.write_text(result.patch.unified_diff(), encoding="utf-8")
-        console.print(f"[dim]wrote diff to {escape(str(write_patch_to))}[/dim]")
+    if repair:
+        outcome = migrate_with_repair(
+            agent=agent,
+            repository=repo,
+            workspace=workspace,
+            index=index,
+            changes=changes,
+            impact=impact,
+            request=request,
+            policy=RepairPolicy(
+                max_attempts=max_attempts, max_total_tokens=settings.agent.max_tokens_per_task * 3
+            ),
+        )
+        _write_diff(outcome.patch, write_patch_to)
+        _render_repair(outcome, show_diff=show_diff)
+        if outcome.verified is None:
+            raise typer.Exit(code=EXIT_FAILURE)
+        return
 
+    result = agent.run(workspace=workspace, index=index, changes=changes, impact=impact)
+    _write_diff(result.patch, write_patch_to)
     _render_migration(result, show_diff=show_diff, verified=run_verification)
     console.print(f"[dim]trace: {escape(str(settings.runs_dir / result.summary.run_id))}[/dim]")
 
@@ -831,9 +925,7 @@ def propose(
     if not run_verification:
         return
 
-    report = verify(
-        repo, result.patch, request=_verification_request(settings, image=image, timeout=None)
-    )
+    report = verify(repo, result.patch, request=request)
     _render_verification(report)
     if not report.verified:
         raise typer.Exit(code=EXIT_FAILURE)

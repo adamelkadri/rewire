@@ -14,7 +14,7 @@ Legend: **done** · *in progress* · planned
 | 3 | Impact analysis (change × repo → ranked affected locations) | **done** |
 | 4 | First coding agent (tool-restricted, produces candidate patches only) | **done** |
 | 5 | Docker sandbox (isolated execution, resource limits, verification) | **done** |
-| 6 | Agent repair loop (sandbox feedback → bounded retries) | planned |
+| 6 | Agent repair loop (sandbox feedback → bounded retries) | **done** |
 | 7 | End-to-end MVP (`rewire migrate`) | planned |
 | 8 | Evaluation framework (datasets, metrics, published results) | planned |
 | 9 | Model comparison across providers | planned |
@@ -30,6 +30,50 @@ Legend: **done** · *in progress* · planned
 
 Milestones: **0–3** core intelligence · **4–7** working agent · **8–10** measured
 agent · **11–18** production product.
+
+## What Phase 6 delivers
+
+- `rewire propose ./repo --old old.yaml --new new.yaml --repair` — propose,
+  verify, feed the failure back, and try again, up to `--max-attempts`.
+- A per-attempt table showing what each attempt changed, what the sandbox said,
+  and what it cost, so "repair helped" is visible rather than asserted.
+- Retries driven by evidence: only `REGRESSED` and `ERRORED` are repairable.
+  `INCONCLUSIVE` stops immediately, because nothing measured the patch and
+  rewriting it cannot change that.
+- Early stops that are real outcomes, each reported: the agent proposed the same
+  patch twice, proposed nothing, or the shared token budget ran out.
+- Each attempt starts from the original files with a fresh patch builder, so a
+  mistaken edit can be replaced rather than only added to.
+- Failing check output and the previous diff reach the agent inside the same
+  untrusted-data envelope as every tool result, and truncated.
+- `verification.json` written beside each attempt's trace.
+- `--max-attempts 1` is repair switched off, which is the comparison Phase 10
+  needs.
+
+**Measured on one case, three runs per arm:** with `--max-attempts 1` the
+migration verified **0/3** times; with `--max-attempts 3` it verified **3/3**,
+every one of them on the second attempt. The case is a rename where the old
+field name also appears as a dict key in a third file that the impact analysis
+does not rank highly; the first attempt consistently misses it and the test
+suite consistently catches it.
+
+Read that number carefully. It is one hand-made case, one model, three runs an
+arm, and the repair prompt was reworded *after* watching this exact case fail.
+It shows that feedback changes the outcome on a case built to need feedback. It
+does not show a success rate, and no success rate should be quoted until
+Phase 8 measures one across a dataset nobody tuned against.
+
+## What Phase 6 explicitly does not deliver
+
+- **No measured success rate.** The runs below are a handful of executions of
+  one hand-made case against one model. That is a demonstration, not a
+  benchmark, and the benchmark is Phase 8.
+- No flake detection. A test that fails intermittently produces `REGRESSED` and
+  sends the agent to fix a bug its patch did not cause.
+- No cross-attempt learning: attempt three is told about attempt two, not about
+  attempt one.
+- No partial credit. A patch that fixes four of five call sites scores the same
+  as one that fixes none.
 
 ## What Phase 5 delivers
 
@@ -57,9 +101,8 @@ source but not in the test that asserts on it is reported `REGRESSED` with
 
 ## What Phase 5 explicitly does not deliver
 
-- **No repair.** A failing check ends the run. Feeding the failure back to the
-  agent and retrying is Phase 6, and it is the difference between the 68% and
-  84% figures this project is aiming at.
+- **No repair of its own.** A failing check ends a Phase 5 run;
+  `propose --repair` reaches Phase 6's loop for that.
 - No reproducibility. `pip install` resolves whatever is current, so a patch
   verified today may verify differently next month. Phase 8 needs pinned images
   per benchmark case.
@@ -92,7 +135,8 @@ source but not in the test that asserts on it is reported `REGRESSED` with
 - **No verification of its own.** Phase 4 executes nothing and writes nothing.
   `rewire propose --verify` reaches Phase 5's sandbox for that; without the
   flag, a candidate patch still has no evidence behind it whatsoever.
-- No repair loop: one attempt, no feedback from failures. That is Phase 6.
+- No repair loop of its own: one attempt, no feedback. `--repair` (Phase 6)
+  adds it.
 - No measured success rate. The agent has been run against one hand-made case;
   that is a demo, not a benchmark.
 
@@ -210,6 +254,31 @@ debt below.
   reads it yet.
 - No Git or GitHub operations, no HTTP API, no dashboard.
 - No evaluation datasets or published metrics.
+
+## Known technical debt carried out of Phase 6
+
+- **The repair prompt was tuned against one observed failure.** The first live
+  run of this phase failed, the prompt was changed to address exactly how it
+  failed, and the next run passed. That is a sample of one, tuned on itself.
+  Until Phase 8 measures it across a dataset, the wording is a hypothesis.
+- **A flaky test is indistinguishable from a regression.** The baseline
+  comparison removes the deterministic cases, not intermittent ones. Re-running
+  a newly failing check before blaming the patch is the fix, and it is not
+  implemented.
+- Feedback carries only the immediately previous attempt. An agent that
+  oscillates between two wrong patches is caught by the repeat check only when
+  the diffs match exactly.
+- The repeat check compares whole diffs. Two patches differing by a comment are
+  treated as different, and each costs a full verification.
+- Every attempt re-stages every edit, so repair costs close to a full run rather
+  than a delta. Combined with the sandbox's lack of caching (Phase 5 debt), a
+  three-attempt run reinstalls dependencies three times.
+- `RepairPolicy.max_total_tokens` defaults to three times the per-task budget
+  from settings, chosen because the default attempt count is three. It is
+  arithmetic, not a measurement.
+- Nothing writes a machine-readable record of the whole repair run. Each attempt
+  gets its own trace and `verification.json`, but Phase 8 will want one file
+  describing the sequence.
 
 ## Known technical debt carried out of Phase 5
 

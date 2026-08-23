@@ -638,3 +638,112 @@ the output rather than implied by it.
 whatever is current, so a patch verified today may verify differently next
 month. Phase 8 needs pinned images per benchmark case for the published numbers
 to be reproducible, and that is recorded as debt rather than solved here.
+
+---
+
+## ADR-027 — Retry only when the sandbox found a mistake
+
+**Decision.** The repair loop retries on `REGRESSED` and `ERRORED` only. An
+`INCONCLUSIVE` verdict ends the run immediately. It also stops early when the
+agent proposes a patch it has already proposed, when it proposes nothing, and
+when the shared token budget is spent.
+
+**Why.** `INCONCLUSIVE` means the sandbox learned nothing: the repository has no
+tests, pytest is missing from the image, the suite timed out, or it was already
+failing before the patch. None of those describe a mistake in the patch, and no
+amount of rewriting it changes any of them. Retrying on "we learned nothing"
+would spend a real budget chasing a problem the agent cannot reach, and — worse
+— would inflate the attempt count in Phase 10's ablation with attempts that
+could never have succeeded.
+
+The repeat-patch check exists for the same reason. If the agent proposes exactly
+the diff that just failed, the next verification is a paid re-run of a known
+result. The loop reports that plainly rather than burning the remaining
+attempts, and it is a real outcome: it is what the first live run of this phase
+actually did.
+
+**Cost.** A repository with a flaky test suite can produce `REGRESSED` on a
+failure the patch did not cause, and the agent will be asked to fix it. The
+baseline comparison (ADR-023) removes the deterministic cases but not
+non-determinism; Phase 8 needs to detect flakiness by re-running a failing
+baseline before this becomes a benchmark problem.
+
+---
+
+## ADR-028 — Every attempt is a complete patch from the original files
+
+**Decision.** Each attempt gets a fresh `PatchBuilder` and works against the
+unmodified repository. The previous attempt's diff is supplied as information,
+and the agent is asked for the whole migration again, not for a fix to the
+previous patch.
+
+**Why.** There is no tool to un-stage an edit. An attempt that inherited the
+previous builder could only add to a patch that was already wrong, so the one
+thing repair most often needs — changing an edit that was mistaken — would be
+impossible to express.
+
+The alternative, continuing the same conversation, has a subtler problem: the
+model would be reasoning about a repository state that does not exist. Its tools
+read the *original* files, so `read_file` and `search_code` would contradict the
+patched diff it was looking at. Restarting makes the tool results and the code
+agree, which is the only version of this a model can reason about reliably.
+
+Discarding the conversation costs the reasoning behind each earlier edit. That
+reasoning was, by construction, at least partly wrong.
+
+**Cost.** Every attempt re-reads the files and re-stages the edits that were
+already correct, so the token cost of attempt two is close to attempt one's
+rather than being a cheap delta. The measured live run spent 7 375 tokens on the
+first attempt and 10 510 on the second.
+
+---
+
+## ADR-029 — Sandbox output reaches the agent as untrusted data
+
+**Decision.** A failing check's output, and the previous attempt's diff, are
+wrapped in the same `<<<REPOSITORY_CONTENT untrusted=true>>>` envelope used for
+every tool result, and truncated to 6 000 characters each.
+
+**Why.** It is tempting to treat the sandbox's output as Rewire's own text — the
+sandbox is Rewire's, after all. It is not: a failing assertion message is
+written by the repository's test suite, an exception message can contain any
+string the repository chooses to raise, and a linter echoes the source line it
+objected to. All of that is attacker-writable text, arriving on a channel the
+agent is predisposed to trust because Rewire asked it to act on it.
+
+The diff is wrapped for the same reason: it quotes repository content verbatim,
+including any comment or docstring near an edit.
+
+Truncation is a separate defence. A test suite failing in a thousand places
+would otherwise fill the context window, which is both a cost problem and a way
+to push the system prompt's instructions out of a model's effective attention.
+
+**Cost.** A failure whose cause is past the truncation point is invisible to the
+agent. The middle-out truncation used for reports (ADR-024) is not applied here
+because pytest puts the useful part first; that is a judgement about pytest, and
+it will be wrong for some other tool.
+
+---
+
+## ADR-030 — Orchestration lives in `services`, not in `agents`
+
+**Decision.** The repair loop is `rewire.services.repair`, not
+`rewire.agents.repair`.
+
+**Why.** `rewire.sandbox` already imports `rewire.agents.patch`, because applying
+a patch is what the sandbox does. If `rewire.agents` imported `rewire.sandbox`
+back, the package graph would contain a cycle that happens to work only because
+of the order in which submodules are first imported — the kind of thing that
+breaks when an unrelated import is added months later.
+
+A composition layer that depends on both, and which nothing else depends on,
+keeps every arrow pointing one way. It is also where Phase 7's `rewire migrate`
+belongs, so this is the layer arriving slightly early rather than a new one
+invented to dodge a cycle.
+
+The same reasoning removed a second edge: `build_repair_prompt` takes plain
+strings rather than a `VerificationReport`, so `rewire.agents.prompts` has no
+knowledge of the sandbox at all.
+
+**Cost.** "Where does this live" is now a question with a real answer that has to
+be learned, rather than everything agent-shaped being under `agents`.

@@ -37,6 +37,10 @@ class EventType(StrEnum):
     EDIT_APPLIED = "edit_applied"
     BUDGET_EXCEEDED = "budget_exceeded"
     RUN_FINISHED = "run_finished"
+    #: A retry seeded with a previous attempt's sandbox result.
+    REPAIR_FEEDBACK = "repair_feedback"
+    #: The sandbox's verdict on one attempt's patch.
+    VERIFICATION = "verification"
 
 
 class TraceEvent(BaseModel):

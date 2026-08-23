@@ -64,8 +64,20 @@ def case(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def _unwrapped(text: str) -> str:
+    """Collapse Rich's line wrapping so assertions can match the real sentence."""
+    return " ".join(text.split())
+
+
 def use_sandbox(monkeypatch: pytest.MonkeyPatch, sandbox: ScriptedRunner) -> None:
-    """Replace the Docker backend with a scripted one, keeping everything else real."""
+    """Replace the Docker backend with a scripted one, keeping everything else real.
+
+    Both call sites are patched. The repair loop holds its own reference to
+    ``verify`` as a default argument, so patching only the CLI's name leaves the
+    repair path talking to a real daemon — which is slow, host-dependent, and
+    exactly the sort of accident that makes a suite quietly stop testing what it
+    claims to.
+    """
 
     def patched(repository: Path, patch: object = None, **kwargs: object) -> object:
         kwargs.pop("runner_factory", None)
@@ -77,6 +89,7 @@ def use_sandbox(monkeypatch: pytest.MonkeyPatch, sandbox: ScriptedRunner) -> Non
         )
 
     monkeypatch.setattr("rewire.cli.verify", patched)
+    monkeypatch.setattr("rewire.services.repair.verify", patched)
 
 
 # ----------------------------------------------------------------- verify ---
@@ -237,3 +250,115 @@ def test_an_inconclusive_proposal_also_fails_the_command(
     result = propose(case, monkeypatch, "--verify")
     assert result.exit_code == 1
     assert "INCONCLUSIVE" in result.stdout
+
+
+# ----------------------------------------------------------- propose --repair ---
+
+
+def repairing_provider(*replacements: str):
+    """A model that stages one edit per attempt, using each replacement in turn."""
+    from rewire.llm import ScriptBuilder
+
+    builder = ScriptBuilder()
+    for replacement in replacements:
+        builder = builder.calls(
+            "propose_edit",
+            file="app.py",
+            old_text="max_tokens=100",
+            new_text=replacement,
+            rationale="renamed",
+        ).says(f"Renamed to {replacement}.")
+    return builder.build()
+
+
+def sandbox_where(*patched_results: int) -> ScriptedRunner:
+    """Script pytest for a run of verifications, one entry per attempt.
+
+    Each verification runs the checks *twice* — baseline then patched — so a
+    naive count of scripted results is off by a factor of two, and the second
+    attempt silently inherits the first attempt's failing baseline. Baseline
+    always passes here; the argument is the exit code of the patched run.
+    """
+    sandbox = ScriptedRunner()
+    for exit_code in patched_results:
+        sandbox.when("-m pytest", exit_code=0, times=1)
+        sandbox.when("-m pytest", exit_code=exit_code, stdout="1 failed", times=1)
+    return sandbox
+
+
+def propose_repairing(
+    case: Path, monkeypatch: pytest.MonkeyPatch, provider: object, *extra: str
+) -> object:
+    monkeypatch.setattr("rewire.cli.build_provider", lambda _settings: provider)
+    return runner.invoke(
+        app,
+        [
+            "propose",
+            str(case / "repo"),
+            "--old",
+            str(case / "old.yaml"),
+            "--new",
+            str(case / "new.yaml"),
+            "--no-diff",
+            "--repair",
+            *extra,
+        ],
+    )
+
+
+def test_repair_reports_every_attempt(case: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A first attempt that fails and a second that passes, both shown."""
+    use_sandbox(monkeypatch, sandbox_where(1, 0))
+    result = propose_repairing(
+        case,
+        monkeypatch,
+        repairing_provider("max_completion_tokens=1", "max_completion_tokens=100"),
+    )
+    assert result.exit_code == 0
+    assert "Attempts" in result.stdout
+    assert "regressed" in result.stdout
+    assert "verified" in result.stdout
+    assert "Repair changed the outcome" in _unwrapped(result.stdout)
+
+
+def test_repair_that_never_succeeds_fails_the_command(
+    case: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    use_sandbox(monkeypatch, sandbox_where(1, 1))
+    result = propose_repairing(
+        case, monkeypatch, repairing_provider("a=1", "b=2", "c=3"), "--max-attempts", "2"
+    )
+    assert result.exit_code == 1
+    # Rich wraps the summary line, so compare on the text rather than the layout.
+    assert "attempt budget exhausted (2)" in _unwrapped(result.stdout)
+    assert "Repair changed the outcome" not in _unwrapped(result.stdout)
+
+
+def test_repair_reports_the_verified_diff(case: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    use_sandbox(monkeypatch, sandbox_where(1, 0))
+    provider = repairing_provider("max_completion_tokens=1", "max_completion_tokens=100")
+    monkeypatch.setattr("rewire.cli.build_provider", lambda _settings: provider)
+    result = runner.invoke(
+        app,
+        [
+            "propose",
+            str(case / "repo"),
+            "--old",
+            str(case / "old.yaml"),
+            "--new",
+            str(case / "new.yaml"),
+            "--repair",
+        ],
+    )
+    assert "Verified diff" in result.stdout
+    assert "max_completion_tokens=100" in result.stdout
+
+
+def test_a_single_attempt_disables_repair(case: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The Phase 10 ablation, reachable from the command line."""
+    use_sandbox(monkeypatch, sandbox_where(1, 0))
+    result = propose_repairing(
+        case, monkeypatch, repairing_provider("a=1", "b=2"), "--max-attempts", "1"
+    )
+    assert result.exit_code == 1
+    assert "1 attempt(s)" in _unwrapped(result.stdout)

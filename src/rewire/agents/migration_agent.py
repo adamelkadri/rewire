@@ -76,11 +76,14 @@ class MigrationResult:
 
     @property
     def verified(self) -> bool:
-        """Always ``False`` in Phase 4.
+        """Always ``False``: an agent run is a proposal, never a conclusion.
 
-        Present so that callers written now cannot mistake a produced patch for
-        a working one, and so that Phase 5 has an obvious place to make it mean
-        something.
+        Verification is a separate step with separate evidence -- see
+        :func:`rewire.sandbox.verify`, whose
+        :class:`~rewire.sandbox.VerificationReport` is the only thing entitled
+        to say a patch works. This property stays false so that a caller holding
+        a :class:`MigrationResult` cannot mistake a produced patch for a working
+        one.
         """
         return False
 
@@ -99,6 +102,11 @@ class MigrationAgent:
         self._budget = budget or AgentBudget()
         self._runs_dir = runs_dir
 
+    @property
+    def runs_dir(self) -> Path | None:
+        """Where per-run traces are written, if anywhere."""
+        return self._runs_dir
+
     def run(
         self,
         *,
@@ -107,8 +115,21 @@ class MigrationAgent:
         changes: ChangeReport,
         impact: ImpactReport,
         run_id: str | None = None,
+        feedback: str = "",
     ) -> MigrationResult:
         """Attempt a migration and return the candidate patch.
+
+        Args:
+            workspace: The repository, opened read-only.
+            index: Its parsed symbol and reference index.
+            changes: The detected API changes.
+            impact: The changes joined to the code they affect.
+            run_id: Identifier for the trace directory; generated if absent.
+            feedback: Result of a previous attempt, from
+                :func:`~rewire.agents.prompts.build_repair_prompt`. Sent as a
+                second opening message so the agent sees the task and the
+                failure together. The patch builder is still fresh, so the
+                agent restages every edit rather than patching a patch.
 
         Raises:
             AgentError: The run could not start. Failures *during* the run end
@@ -148,6 +169,9 @@ class MigrationAgent:
             )
 
             messages: list[Message] = [Message.user(build_task_prompt(changes, impact))]
+            if feedback:
+                messages.append(Message.user(feedback))
+                trace.record(EventType.REPAIR_FEEDBACK, state, feedback_chars=len(feedback))
 
             while True:
                 if iterations >= self._budget.max_iterations:

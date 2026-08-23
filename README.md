@@ -18,16 +18,14 @@ reasoning and code generation are genuinely required, and it is never permitted
 to declare its own success: correctness is decided by tests, type checks and
 lints executed in a sandbox.
 
-> **Status: Phase 5 — sandboxed verification.** Milestone 1 (core intelligence)
-> is complete, an agent produces candidate patches, and those patches are now
-> executed: `--verify` runs the repository's own tests, linter and type checker
-> in a container with no network, before and after the patch, and only a run
-> with passing tests and no regressions is called `VERIFIED`. What is still
-> missing is repair — a failing check ends the run rather than being fed back
-> (Phase 6). The build is incremental and each phase is finished, tested and
-> documented before the next begins. See [docs/roadmap.md](docs/roadmap.md) for
-> what exists today and what does not. Nothing in this README describes
-> behaviour that is not implemented.
+> **Status: Phase 6 — the repair loop closes.** Rewire now detects the API
+> change, finds the affected code, writes a patch, executes it in a sandbox,
+> reads the failure and tries again. Milestone 2 is one phase from complete: a
+> single `rewire migrate` entry point is Phase 7, and the measured success rate
+> across a real dataset is Phase 8. What exists today is a working loop
+> demonstrated on hand-made cases, not a benchmark. See
+> [docs/roadmap.md](docs/roadmap.md) for exactly what that means. Nothing in
+> this README describes behaviour that is not implemented.
 
 ---
 
@@ -57,7 +55,7 @@ src/rewire/
   agents/      agent loop, tool definitions, run tracing             (Phase 4)
   llm/         provider-agnostic LLM abstraction                     (Phase 4)
   sandbox/     isolated patch execution and verification             (Phase 5)
-  services/    pipeline orchestration                                (Phase 7)
+  services/    orchestration: the propose-verify-repair loop          (Phase 6)
   evals/       benchmark datasets, runners, metrics                  (Phase 3)
   gitio/       Git and GitHub integration                            (Phase 11)
   api/         FastAPI surface                                       (Phase 13)
@@ -398,6 +396,61 @@ uv run rewire verify ./repo            # what do this repository's checks prove?
 uv run rewire verify ./repo --no-install   # fully offline
 ```
 
+## Repair what the sandbox rejects
+
+```bash
+uv run rewire propose ./repo --old old.yaml --new new.yaml --repair
+```
+
+The failing check's output goes back to the agent and it tries again:
+
+```text
+┏━━━┳━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ # ┃ Files ┃ Verdict   ┃ Tokens ┃ Why                                         ┃
+┡━━━╇━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ 1 │ 2     │ regressed │   7641 │ the patch broke checks that passed before   │
+│   │       │           │        │ it: tests                                   │
+│ 2 │ 3     │ verified  │  16898 │ the test suite passed after the patch and   │
+│   │       │           │        │ no check regressed                          │
+└───┴───────┴───────────┴────────┴─────────────────────────────────────────────┘
+Repair changed the outcome: the first attempt failed verification and a later
+one passed it.
+```
+
+That run is real. The first attempt renamed the field in the source and the
+tests but missed a third file where the old name appears as a dict key; pytest
+caught it, the agent was shown the assertion failure, and the second attempt
+found the file and produced a patch that verified.
+
+- **Retries need evidence, not suspicion.** Only `REGRESSED` and `ERRORED` are
+  retried. `INCONCLUSIVE` — no tests, tooling missing, suite already failing —
+  stops immediately, because nothing measured the patch and rewriting it cannot
+  change that ([ADR-027](docs/decisions.md)).
+- **Each attempt starts from the original files.** There is no un-stage tool, so
+  an attempt inheriting the previous builder could only *add* to a patch that
+  was already wrong. A fresh builder is what lets a mistaken edit be replaced
+  ([ADR-028](docs/decisions.md)).
+- **The sandbox's output is untrusted too.** A failing assertion's message is
+  written by the repository, not by Rewire, so it arrives in the same envelope
+  as any other repository content ([ADR-029](docs/decisions.md)).
+- **The loop stops when it stops progressing** — the same patch proposed twice,
+  no patch at all, or the shared token budget spent. Each is reported as what it
+  is rather than as a failure to migrate.
+
+`--max-attempts 1` turns repair off, which is the comparison Phase 10's
+ablations are built on. Running both arms on the case above, three times each:
+
+| | verified |
+|---|---|
+| `--max-attempts 1` (repair off) | **0 / 3** |
+| `--max-attempts 3` (repair on) | **3 / 3**, all on attempt two |
+
+That is a demonstration, not a benchmark — one hand-made case, one model, three
+runs an arm, and the repair prompt was reworded after watching this case fail.
+It shows feedback changing the outcome on a case built to need feedback. The
+measured success rate across a dataset nobody tuned against is Phase 8, and no
+figure should be quoted before then.
+
 ## Verify your environment
 
 ```bash
@@ -510,8 +563,11 @@ Tracked honestly in [docs/roadmap.md](docs/roadmap.md). As of Phase 5:
 - **No cross-file call graph.** A call to a locally defined wrapper is recorded
   but not followed into the wrapper's body.
 - **No index caching** — every command reparses the repository from scratch.
-- **No repair loop.** A failing check ends the run; feeding the failure back to
-  the agent and retrying is Phase 6.
+- **No measured success rate.** The repair loop is demonstrated on hand-made
+  cases, not benchmarked. A real dataset and published precision/recall are
+  Phase 8, and no figure should be quoted before then.
+- **A flaky test looks exactly like a regression**, and sends the agent to fix a
+  bug its patch did not cause.
 - **Verification is not reproducible.** Dependencies are resolved fresh on every
   run against a floating image tag, so a patch verified today may verify
   differently next month. Phase 8 needs pinned images for published numbers.

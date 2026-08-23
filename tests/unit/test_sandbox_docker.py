@@ -300,3 +300,106 @@ def test_a_real_repository_is_verified_and_a_real_regression_is_caught(tmp_path:
 
     # The user's checkout is untouched by either run.
     assert '"max_tokens"' in (repo / "demo" / "__init__.py").read_text(encoding="utf-8")
+
+
+@needs_docker
+@pytest.mark.integration
+@pytest.mark.slow
+def test_the_repair_loop_turns_a_real_failure_into_a_real_pass(tmp_path: Path) -> None:
+    """The Phase 6 claim, with nothing simulated except the model.
+
+    The model is scripted so the test is deterministic, but everything the loop
+    reacts to is real: a container runs pytest, pytest genuinely fails on the
+    first patch, and the second attempt is verified by a second real run.
+    """
+    from rewire.agents import AgentBudget, MigrationAgent, Workspace
+    from rewire.analyzers import build_index
+    from rewire.changes import diff_specs, parse_spec_text
+    from rewire.impact import analyse_impact
+    from rewire.llm import ScriptBuilder
+    from rewire.sandbox.models import VerificationRequest
+    from rewire.services import migrate_with_repair
+
+    repo = tmp_path / "repo"
+    (repo / "tests").mkdir(parents=True)
+    (repo / "pyproject.toml").write_text(
+        "[build-system]\nrequires = ['hatchling']\nbuild-backend = 'hatchling.build'\n\n"
+        "[project]\nname = 'demo'\nversion = '0.1.0'\ndependencies = []\n\n"
+        "[tool.hatch.build.targets.wheel]\npackages = ['demo']\n",
+        encoding="utf-8",
+    )
+    (repo / "demo").mkdir()
+    (repo / "demo" / "__init__.py").write_text(
+        'def payload(limit: int = 16) -> dict[str, object]:\n    return {"max_tokens": limit}\n',
+        encoding="utf-8",
+    )
+    (repo / "tests" / "test_demo.py").write_text(
+        "from demo import payload\n\n\n"
+        'def test_field():\n    assert payload()["max_tokens"] == 16\n',
+        encoding="utf-8",
+    )
+
+    spec = (
+        'openapi: "3.0.3"\ninfo: {{title: API, version: "{v}"}}\n'
+        "paths:\n  /v1/chat/completions:\n    post:\n      requestBody:\n"
+        "        content:\n          application/json:\n"
+        "            schema: {{type: object, properties: {{{field}: {{type: integer}}}}}}\n"
+        "      responses: {{'200': {{description: OK}}}}\n"
+    )
+    changes = diff_specs(
+        parse_spec_text(spec.format(v="1", field="max_tokens")),
+        parse_spec_text(spec.format(v="2", field="max_completion_tokens")),
+    )
+    index = build_index(repo)
+
+    # Attempt one renames the source but not the test, which is the single most
+    # common way a real migration patch breaks a build. Attempt two fixes both.
+    provider = (
+        ScriptBuilder()
+        .calls(
+            "propose_edit",
+            file="demo/__init__.py",
+            old_text='"max_tokens"',
+            new_text='"max_completion_tokens"',
+            rationale="renamed the request field",
+        )
+        .says("Renamed the field.")
+        .calls(
+            "propose_edit",
+            file="demo/__init__.py",
+            old_text='"max_tokens"',
+            new_text='"max_completion_tokens"',
+            rationale="renamed the request field",
+        )
+        .calls(
+            "propose_edit",
+            file="tests/test_demo.py",
+            old_text='"max_tokens"',
+            new_text='"max_completion_tokens"',
+            rationale="the test asserts on the old name",
+        )
+        .says("Renamed the field and updated the test.")
+        .build()
+    )
+
+    outcome = migrate_with_repair(
+        agent=MigrationAgent(provider, budget=AgentBudget(max_iterations=6)),
+        repository=repo,
+        workspace=Workspace.open(repo),
+        index=index,
+        changes=changes,
+        impact=analyse_impact(changes, index),
+        request=VerificationRequest(check_timeout_seconds=300),
+    )
+
+    assert [attempt.verdict for attempt in outcome.attempts] == [
+        Verdict.REGRESSED,
+        Verdict.VERIFIED,
+    ]
+    assert outcome.repaired
+    assert outcome.attempts[0].report is not None
+    assert CheckKind.TESTS in outcome.attempts[0].report.regressions
+    # The patch handed back is the one that passed, and it covers both files.
+    assert set(outcome.patch.files) == {"demo/__init__.py", "tests/test_demo.py"}
+    # And the user's checkout is untouched throughout.
+    assert '"max_tokens"' in (repo / "demo" / "__init__.py").read_text(encoding="utf-8")

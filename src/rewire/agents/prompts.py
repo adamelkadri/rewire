@@ -26,6 +26,7 @@ security boundary; the tool surface is.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Final
 
 from rewire.changes.models import ChangeReport, Severity
@@ -34,7 +35,7 @@ from rewire.impact.models import ImpactReport
 #: Version of the system prompt, recorded in every trace. Phase 9 compares
 #: models and Phase 10 compares agent configurations; neither comparison means
 #: anything if the prompt changed silently between runs.
-PROMPT_VERSION: Final[str] = "2026-08-23.1"
+PROMPT_VERSION: Final[str] = "2026-08-23.3"
 
 #: Delimiter marking untrusted repository content in a tool result.
 UNTRUSTED_OPEN: Final[str] = "<<<REPOSITORY_CONTENT untrusted=true>>>"
@@ -75,6 +76,10 @@ Rules:
 - You cannot run tests, and you cannot verify that your patch works. Do not
   claim that it does. Your output is a candidate patch that Rewire will execute
   and check separately.
+- If you are given the result of a previous attempt, that output came from
+  really running your patch in a sandbox. Treat it as fact about what happened.
+  Read the failure before changing anything: fix the cause it reports rather
+  than guessing at a different change.
 
 Trust boundary:
 
@@ -150,6 +155,84 @@ def build_task_prompt(changes: ChangeReport, impact: ImpactReport, *, max_change
     return "\n".join(lines)
 
 
+#: Longest slice of a failing check's output included in a repair prompt. Long
+#: enough for a pytest traceback, short enough that a suite failing in a hundred
+#: places cannot consume the whole context window.
+MAX_FAILURE_CHARS: Final[int] = 6_000
+
+
+def build_repair_prompt(
+    *,
+    verdict: str,
+    reason: str,
+    regressions: Sequence[str],
+    failures: Sequence[tuple[str, str]],
+    diff: str,
+) -> str:
+    """Render the sandbox's verdict as the follow-up message for a retry.
+
+    Takes plain strings rather than a ``VerificationReport`` so that this
+    package does not depend on :mod:`rewire.sandbox`, which already depends on
+    :mod:`rewire.agents.patch`. Keeping the arrow pointing one way means the
+    layering survives an import-order change.
+
+    Two things make this prompt work, and both are easy to get wrong.
+
+    The first is that it asks for a **complete** patch, not a delta. Each
+    attempt starts from the original files with a fresh patch builder, because
+    there is no tool to un-stage an edit; asking the agent to "fix" a patch
+    whose staged state it can no longer see would produce a patch describing the
+    difference between two things it never held.
+
+    The second is the trust boundary. A failing test's output is program output
+    from a repository Rewire does not control -- an assertion message is
+    attacker-writable text -- so it arrives wrapped exactly as a tool result
+    does, and so does the diff, which quotes repository content verbatim.
+
+    Args:
+        verdict: The sandbox verdict, e.g. ``regressed``.
+        reason: Its plain-language justification.
+        regressions: Checks that passed before the patch and fail after it.
+        failures: ``(tool name, output)`` for each regressed check.
+        diff: The unified diff that produced this result.
+    """
+    lines = [
+        "Your previous patch was applied and the repository's own checks were run in a",
+        f"sandbox. The result was {verdict.upper()}: {reason}.",
+        "",
+    ]
+
+    if regressions:
+        lines.append(
+            f"These checks passed before your patch and fail after it: {', '.join(regressions)}."
+        )
+        lines.append("")
+
+    for name, output in failures:
+        lines.append(f"## Output of {name}")
+        lines.append(wrap_untrusted(output[:MAX_FAILURE_CHARS]))
+        lines.append("")
+
+    lines.extend(
+        [
+            "## The patch that produced this",
+            wrap_untrusted(diff[:MAX_FAILURE_CHARS]),
+            "",
+            "Propose the corrected migration in full. Your edits are staged against the",
+            "original files, exactly as in your first attempt -- so restage every change",
+            "that is still needed, not only the fix. Read the files again before editing:",
+            "the repository is in its original state, not the patched state above.",
+            "",
+            "Before you edit anything, run search_code on the old name again and open",
+            "every file it reports with read_file, including ones the impact analysis did",
+            "not list. A failure like this usually means an occurrence was left behind in",
+            "a file you did not read -- and you cannot stage an edit in a file whose exact",
+            "text you have not seen.",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def build_review_nudge(edited_files: list[str]) -> str:
     """Message sent when the agent stops without staging any edit.
 
@@ -169,10 +252,12 @@ def build_review_nudge(edited_files: list[str]) -> str:
 
 
 __all__ = [
+    "MAX_FAILURE_CHARS",
     "PROMPT_VERSION",
     "SYSTEM_PROMPT",
     "UNTRUSTED_CLOSE",
     "UNTRUSTED_OPEN",
+    "build_repair_prompt",
     "build_review_nudge",
     "build_task_prompt",
     "wrap_untrusted",
