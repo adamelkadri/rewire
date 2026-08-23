@@ -58,6 +58,13 @@ jobs:
       - name: Type check
         run: mypy src
 
+      # The sandbox's isolation claims are tested by trying to break out of a
+      # real container, so the suite needs a daemon and the image. Pulling it
+      # here keeps a slow download out of the first test's time budget, where it
+      # would look like a slow test suite.
+      - name: Pre-pull the sandbox image
+        run: docker pull python:3.12-slim
+
       - name: Test
         env:
           REWIRE_ENVIRONMENT: ci

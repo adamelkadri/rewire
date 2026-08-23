@@ -18,13 +18,16 @@ reasoning and code generation are genuinely required, and it is never permitted
 to declare its own success: correctness is decided by tests, type checks and
 lints executed in a sandbox.
 
-> **Status: Phase 4 — first coding agent.** Milestone 1 (core intelligence) is
-> complete and the first LLM has entered the pipeline. The agent produces a
-> *candidate* patch: Rewire does not yet execute it, and the agent is not
-> permitted to claim it works. The build is incremental and each
-> phase is finished, tested and documented before the next begins. See
-> [docs/roadmap.md](docs/roadmap.md) for what exists today and what does not.
-> Nothing in this README describes behaviour that is not implemented.
+> **Status: Phase 5 — sandboxed verification.** Milestone 1 (core intelligence)
+> is complete, an agent produces candidate patches, and those patches are now
+> executed: `--verify` runs the repository's own tests, linter and type checker
+> in a container with no network, before and after the patch, and only a run
+> with passing tests and no regressions is called `VERIFIED`. What is still
+> missing is repair — a failing check ends the run rather than being fed back
+> (Phase 6). The build is incremental and each phase is finished, tested and
+> documented before the next begins. See [docs/roadmap.md](docs/roadmap.md) for
+> what exists today and what does not. Nothing in this README describes
+> behaviour that is not implemented.
 
 ---
 
@@ -302,7 +305,8 @@ Files changed
   tests/test_client.py  +1 -1
 
 This patch is a proposal. Rewire has not executed it: no tests were run and
-nothing was written to your repository.
+nothing was written to your repository. Run with --verify to execute the
+repository's own checks against it in a sandbox.
 ```
 
 Three design choices carry this phase:
@@ -333,6 +337,66 @@ REWIRE_LLM__PROVIDER=anthropic  REWIRE_LLM__MODEL=claude-opus-5
 Every run writes a JSONL trace under `.rewire/runs/<id>/` with each prompt, tool
 call, token count and cost, flushed per event so a killed run still leaves
 something readable.
+
+## Prove the patch works
+
+```bash
+uv run rewire propose ./repo --old old.yaml --new new.yaml --verify
+```
+
+The patch is applied to a disposable copy inside a container and the
+repository's own checks are executed — **twice**, once before the patch and once
+after, so a regression means the patch caused it:
+
+```text
+VERIFIED  the test suite passed after the patch and no check regressed
+Sandbox checks
+┏━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Check     ┃ Tool       ┃ Before  ┃ After   ┃ Detail                         ┃
+┡━━━━━━━━━━━╇━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ tests     │ pytest     │ passed  │ passed  │ repository contains a test     │
+│           │            │         │         │ suite                          │
+│ typecheck │ mypy       │ skipped │ skipped │ repository does not configure  │
+│           │            │         │         │ mypy                           │
+│ lint      │ ruff       │ passed  │ passed  │ repository configures ruff     │
+│ syntax    │ compileall │ passed  │ passed  │ always available; proves every │
+│           │            │         │         │ file still parses              │
+└───────────┴────────────┴─────────┴─────────┴────────────────────────────────┘
+
+image python:3.12-slim, 18.1s, checks ran with no network
+```
+
+Given the same repository and a patch that renames the field in the source but
+not in the test that asserts on it, the same command reports `REGRESSED`, names
+`tests` as the regression, and exits non-zero. Both outcomes are asserted by an
+integration test that runs against a real daemon.
+
+Four things this design insists on:
+
+- **The baseline is measured, not assumed.** Real repositories have a failing
+  test and an unclean linter. Without a before-run, a verifier attributes the
+  repository's existing state to the agent — invisible on hand-made fixtures,
+  fatal to a benchmark ([ADR-023](docs/decisions.md)).
+- **"Not checked" is not "passing".** A repository with no tests, a linter
+  missing from the image, and a suite that timed out are three different
+  statuses, and none of them is a pass. `VERIFIED` requires a test suite that
+  actually ran ([ADR-024](docs/decisions.md)) — so `INCONCLUSIVE` exits non-zero
+  just as `REGRESSED` does.
+- **The isolation is tested by attacking it.** The container drops all
+  capabilities, runs non-root on a read-only root filesystem with no network and
+  hard memory/CPU/process ceilings. Integration tests open a socket, write
+  outside the workspace and fork until the kernel refuses — and assert each
+  attempt fails ([ADR-025](docs/decisions.md)).
+- **Only installation may reach the network**, on its own reported step; a
+  repository with no dependencies never goes online at all, and `--no-install`
+  forces that ([ADR-026](docs/decisions.md)).
+
+To measure a repository without involving an agent:
+
+```bash
+uv run rewire verify ./repo            # what do this repository's checks prove?
+uv run rewire verify ./repo --no-install   # fully offline
+```
 
 ## Verify your environment
 
@@ -427,7 +491,7 @@ Recorded in [`docs/decisions.md`](docs/decisions.md). In short:
 
 ## Limitations
 
-Tracked honestly in [docs/roadmap.md](docs/roadmap.md). As of Phase 1:
+Tracked honestly in [docs/roadmap.md](docs/roadmap.md). As of Phase 5:
 
 - **OpenAPI 3.x only.** Swagger 2.0 is rejected with a message telling you to
   convert first. GraphQL, gRPC and hand-written SDK changelogs are not supported.
@@ -446,9 +510,13 @@ Tracked honestly in [docs/roadmap.md](docs/roadmap.md). As of Phase 1:
 - **No cross-file call graph.** A call to a locally defined wrapper is recorded
   but not followed into the wrapper's body.
 - **No index caching** — every command reparses the repository from scratch.
-- **Nothing yet joins a detected API change to an affected location.** Phase 1
-  knows what changed and Phase 2 knows where the code is; connecting them is
-  Phase 3.
+- **No repair loop.** A failing check ends the run; feeding the failure back to
+  the agent and retrying is Phase 6.
+- **Verification is not reproducible.** Dependencies are resolved fresh on every
+  run against a floating image tag, so a patch verified today may verify
+  differently next month. Phase 8 needs pinned images for published numbers.
+- **Sandbox checks are Python-only.** A repository built with tox, nox, a
+  Makefile or another language gets byte-compilation and nothing else.
 
 ## Licence
 

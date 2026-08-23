@@ -13,7 +13,7 @@ Legend: **done** · *in progress* · planned
 | 2 | Repository analysis (AST index, symbols, imports, usages) | **done** |
 | 3 | Impact analysis (change × repo → ranked affected locations) | **done** |
 | 4 | First coding agent (tool-restricted, produces candidate patches only) | **done** |
-| 5 | Docker sandbox (isolated execution, resource limits, verification) | planned |
+| 5 | Docker sandbox (isolated execution, resource limits, verification) | **done** |
 | 6 | Agent repair loop (sandbox feedback → bounded retries) | planned |
 | 7 | End-to-end MVP (`rewire migrate`) | planned |
 | 8 | Evaluation framework (datasets, metrics, published results) | planned |
@@ -30,6 +30,45 @@ Legend: **done** · *in progress* · planned
 
 Milestones: **0–3** core intelligence · **4–7** working agent · **8–10** measured
 agent · **11–18** production product.
+
+## What Phase 5 delivers
+
+- `rewire verify ./repo` — runs the repository's own checks in a container and
+  reports what they prove, before an agent is involved at all.
+- `rewire propose ... --verify` — proposes a patch, then executes the checks
+  against it and exits non-zero unless the verdict is `VERIFIED`.
+- A baseline-and-patched comparison, so a regression means the patch caused it
+  and a repository that was already failing is not blamed on the agent.
+- Check detection from the repository's own configuration: pytest when there are
+  tests, ruff and mypy when they are configured, byte-compilation always.
+- Five check statuses, because "no linter", "linter missing from the image" and
+  "linter failed" are three different things and none of them is a pass.
+- A container with no network, no capabilities, a read-only root filesystem, a
+  non-root user, and hard memory, CPU and process ceilings — with integration
+  tests that try to break each one and assert the attempt fails.
+- Host-enforced timeouts followed by `docker rm -f`, so a container that ignores
+  its own limits is still killed and still leaves partial output.
+- A scripted runner that makes the whole pipeline testable without Docker.
+
+**Measured on a real repository:** a patch renaming a request field in the
+source but not in the test that asserts on it is reported `REGRESSED` with
+`tests` named as the regression; the same patch including the test is reported
+`VERIFIED`. Both run in a container proven, by test, to have no network access.
+
+## What Phase 5 explicitly does not deliver
+
+- **No repair.** A failing check ends the run. Feeding the failure back to the
+  agent and retrying is Phase 6, and it is the difference between the 68% and
+  84% figures this project is aiming at.
+- No reproducibility. `pip install` resolves whatever is current, so a patch
+  verified today may verify differently next month. Phase 8 needs pinned images
+  per benchmark case.
+- No caching. Every run stages the repository and reinstalls its dependencies
+  from scratch, which dominates the wall clock on small repositories.
+- Python only. Check detection understands pyproject, requirements, pytest, ruff
+  and mypy, and nothing else.
+- No sandbox for the install step's build backend, which executes untrusted code
+  with network access under container confinement. See ADR-026.
 
 ## What Phase 4 delivers
 
@@ -50,11 +89,10 @@ agent · **11–18** production product.
 
 ## What Phase 4 explicitly does not deliver
 
-- **No verification of any kind.** Nothing is executed, no test is run, and
-  nothing is written to the target repository.
+- **No verification of its own.** Phase 4 executes nothing and writes nothing.
+  `rewire propose --verify` reaches Phase 5's sandbox for that; without the
+  flag, a candidate patch still has no evidence behind it whatsoever.
 - No repair loop: one attempt, no feedback from failures. That is Phase 6.
-- No sandbox. That is Phase 5, and until it exists a candidate patch has no
-  evidence behind it whatsoever.
 - No measured success rate. The agent has been run against one hand-made case;
   that is a demo, not a benchmark.
 
@@ -173,6 +211,38 @@ debt below.
 - No Git or GitHub operations, no HTTP API, no dashboard.
 - No evaluation datasets or published metrics.
 
+## Known technical debt carried out of Phase 5
+
+- **Verification is not reproducible.** `pip install` resolves whatever is
+  current, and the sandbox image is a floating tag. A patch verified today may
+  verify differently next month, which is acceptable for a development tool and
+  unacceptable for the published benchmark numbers in Phase 8. That phase needs
+  pinned images and pinned resolutions per case.
+- **Installing a repository executes its build backend**, with network access,
+  inside the container. It is the weakest point in the isolation story. Confined
+  and reported, but not removed — see ADR-026.
+- **No caching whatsoever.** Every run re-stages the repository and reinstalls
+  its dependencies. On the demo repository that is roughly 15 seconds of install
+  for one second of checks, and Phase 6's repair loop multiplies it by the retry
+  count. A per-repository image layer or a warm virtual environment is the fix.
+- Checks are hard-coded to a Python toolchain. A repository using tox, nox,
+  hatch scripts, a Makefile or a non-Python language gets byte-compilation and
+  nothing else.
+- `ruff` and `mypy` are installed unpinned, so their versions — and therefore
+  the lint and typecheck results — can differ between the baseline and a later
+  run of the same repository. The baseline comparison protects against this
+  within a single run, but not across runs.
+- Check output is truncated to 16 000 characters from the middle. A test suite
+  that fails in a hundred places loses the middle ninety, which will matter when
+  Phase 6 feeds failures back to the agent.
+- The `SandboxSettings` defaults (2 GB, 2 CPUs, 512 processes, 600 seconds) are
+  still informed guesses. They are now *used*, which is progress, but nothing
+  has measured whether they are right for a large repository.
+- `rewire verify` on a repository with no tests reports `INCONCLUSIVE` and exits
+  zero, while `propose --verify` treats the same verdict as failure. Defensible
+  — one is an inspection, the other is a gate — but the asymmetry is worth
+  revisiting once Phase 7 has a single `migrate` entry point.
+
 ## Known technical debt carried out of Phase 2
 
 - Reference evidence weights are hand-assigned constants, not fitted to data.
@@ -256,9 +326,9 @@ debt below.
 - `Settings.database_url` defaults to a `sqlite+aiosqlite` URL, but no
   SQLAlchemy engine, models or migrations exist yet. The value is currently
   configuration-only and unvalidated against a live driver (Phase 13).
-- `SandboxSettings` and `AgentSettings` are validated but unread; their defaults
-  are informed guesses that Phase 5 and Phase 6 will have to justify with
-  measurements.
+- `AgentSettings` defaults are informed guesses that Phase 6 will have to
+  justify with measurements. `SandboxSettings` is now read by the sandbox
+  (Phase 5), but its numbers are equally unmeasured.
 - The `docker.sock` mount in `docker-compose.yml` is host-root-equivalent. It is
   acceptable for local development and is called out in ADR-003; Phase 16 must
   revisit it before anything resembling a deployment.

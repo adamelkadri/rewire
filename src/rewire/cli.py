@@ -43,6 +43,14 @@ from rewire.impact import (
     attach_snippets,
 )
 from rewire.llm import build_provider
+from rewire.sandbox import (
+    CheckResult,
+    Verdict,
+    VerificationReport,
+    VerificationRequest,
+    verify,
+)
+from rewire.sandbox import CheckStatus as SandboxCheckStatus
 
 app = typer.Typer(
     name="rewire",
@@ -588,7 +596,7 @@ def eval_impact(
         raise typer.Exit(code=EXIT_FAILURE)
 
 
-def _render_migration(result: MigrationResult, *, show_diff: bool) -> None:
+def _render_migration(result: MigrationResult, *, show_diff: bool, verified: bool = False) -> None:
     summary = result.summary
     verdict = "[yellow]CANDIDATE[/yellow]" if summary.produced_patch else "[red]NO PATCH[/red]"
     console.print(f"\n{verdict}  {escape(summary.outcome)}")
@@ -620,11 +628,126 @@ def _render_migration(result: MigrationResult, *, show_diff: bool) -> None:
         console.print("\n[bold]Candidate diff[/bold]")
         console.print(Syntax(result.patch.unified_diff(), "diff", theme="ansi_dark"))
 
-    console.print(
-        "\n[dim]This patch is a proposal. Rewire has not executed it: no tests were "
-        "run and nothing was written to your repository. Verification arrives in "
-        "Phase 5.[/dim]"
+    if not verified:
+        console.print(
+            "\n[dim]This patch is a proposal. Rewire has not executed it: no tests were "
+            "run and nothing was written to your repository. Run with --verify to "
+            "execute the repository's own checks against it in a sandbox.[/dim]"
+        )
+
+
+#: How each verdict is coloured, and what it means in one word.
+VERDICT_STYLE: dict[Verdict, str] = {
+    Verdict.VERIFIED: "green",
+    Verdict.REGRESSED: "red",
+    Verdict.INCONCLUSIVE: "yellow",
+    Verdict.ERRORED: "red",
+}
+
+STATUS_STYLE: dict[SandboxCheckStatus, str] = {
+    SandboxCheckStatus.PASSED: "green",
+    SandboxCheckStatus.FAILED: "red",
+    SandboxCheckStatus.TIMED_OUT: "red",
+    SandboxCheckStatus.UNAVAILABLE: "yellow",
+    SandboxCheckStatus.SKIPPED: "dim",
+}
+
+
+def _status_cell(result: CheckResult | None) -> str:
+    """Render a check status, or a dash where the check never ran."""
+    if result is None:
+        return "[dim]-[/dim]"
+    style = STATUS_STYLE[result.status]
+    return f"[{style}]{result.status.value}[/{style}]"
+
+
+def _verification_request(
+    settings: Settings, *, image: str | None, timeout: int | None
+) -> VerificationRequest:
+    """Build a sandbox policy from settings, with per-invocation overrides."""
+    sandbox = settings.sandbox
+    return VerificationRequest(
+        image=image or sandbox.image,
+        check_timeout_seconds=timeout or sandbox.timeout_seconds,
+        memory_limit_mb=sandbox.memory_limit_mb,
+        cpu_limit=sandbox.cpu_limit,
+        pids_limit=sandbox.pids_limit,
+        read_only_rootfs=sandbox.read_only_rootfs,
+        max_repo_size_mb=sandbox.max_repo_size_mb,
     )
+
+
+def _render_verification(report: VerificationReport) -> None:
+    """Print the evidence behind a verdict, including what was never measured."""
+    style = VERDICT_STYLE[report.verdict]
+    console.print(f"\n[{style}]{report.verdict.value.upper()}[/{style}]  {escape(report.reason)}")
+
+    table = Table(title="Sandbox checks", title_justify="left")
+    table.add_column("Check")
+    table.add_column("Tool")
+    table.add_column("Before")
+    table.add_column("After")
+    table.add_column("Detail", overflow="fold")
+
+    before = {result.kind: result for result in report.baseline}
+    after = {result.kind: result for result in report.patched}
+    for kind in sorted(before | after, key=lambda kind: kind.strength):
+        baseline = before.get(kind)
+        patched = after.get(kind)
+        shown = patched or baseline
+        assert shown is not None  # noqa: S101 - keys come from these two mappings
+        table.add_row(
+            kind.value,
+            shown.name,
+            _status_cell(baseline),
+            _status_cell(patched),
+            escape(shown.reason),
+        )
+    console.print(table)
+
+    if report.install is not None and not report.install.passed and report.install.outcome:
+        console.print("\n[bold]Dependency installation failed[/bold]")
+        console.print(f"[dim]{escape(report.install.outcome.tail(15))}[/dim]")
+
+    for result in report.patched:
+        if result.status in {SandboxCheckStatus.FAILED, SandboxCheckStatus.TIMED_OUT}:
+            console.print(f"\n[bold]{escape(result.name)} output[/bold]")
+            console.print(f"[dim]{escape(result.outcome.tail(20) if result.outcome else '')}[/dim]")
+
+    console.print(
+        f"\n[dim]image {escape(report.image)}, {report.duration_seconds:.1f}s, "
+        f"checks ran with no network[/dim]"
+    )
+
+
+@app.command(name="verify")
+def verify_repo(
+    repo: Annotated[
+        Path,
+        typer.Argument(exists=True, file_okay=False, readable=True, help="Repository root."),
+    ],
+    image: Annotated[
+        str | None, typer.Option("--image", help="Docker image to run the checks in.")
+    ] = None,
+    timeout: Annotated[
+        int | None, typer.Option("--timeout", min=1, help="Seconds allowed per check.")
+    ] = None,
+    no_install: Annotated[
+        bool,
+        typer.Option("--no-install", help="Skip dependency installation and stay fully offline."),
+    ] = False,
+) -> None:
+    """Run a repository's own checks in the sandbox and report what they prove.
+
+    This is the baseline measurement: no patch is applied. It answers whether a
+    repository is verifiable at all, which is worth knowing before an agent is
+    ever pointed at it — a project whose tests already fail cannot confirm any
+    migration.
+    """
+    settings = get_settings()
+    request = _verification_request(settings, image=image, timeout=timeout)
+    report = verify(repo, request=request.model_copy(update={"install": not no_install}))
+    _render_verification(report)
 
 
 @app.command()
@@ -654,6 +777,13 @@ def propose(
     write_patch_to: Annotated[
         Path | None,
         typer.Option("--write-diff", help="Write the unified diff to a file."),
+    ] = None,
+    run_verification: Annotated[
+        bool,
+        typer.Option("--verify/--no-verify", help="Execute the repository's checks in a sandbox."),
+    ] = False,
+    image: Annotated[
+        str | None, typer.Option("--image", help="Docker image used for verification.")
     ] = None,
 ) -> None:
     """Ask the agent to propose a migration patch. Nothing is modified.
@@ -692,10 +822,20 @@ def propose(
         write_patch_to.write_text(result.patch.unified_diff(), encoding="utf-8")
         console.print(f"[dim]wrote diff to {escape(str(write_patch_to))}[/dim]")
 
-    _render_migration(result, show_diff=show_diff)
+    _render_migration(result, show_diff=show_diff, verified=run_verification)
     console.print(f"[dim]trace: {escape(str(settings.runs_dir / result.summary.run_id))}[/dim]")
 
     if not result.summary.produced_patch:
+        raise typer.Exit(code=EXIT_FAILURE)
+
+    if not run_verification:
+        return
+
+    report = verify(
+        repo, result.patch, request=_verification_request(settings, image=image, timeout=None)
+    )
+    _render_verification(report)
+    if not report.verified:
         raise typer.Exit(code=EXIT_FAILURE)
 
 

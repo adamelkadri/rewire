@@ -526,3 +526,115 @@ that the offered tool set contains nothing that executes.
 **Cost.** A scripted model does not behave like a real one, so these tests prove
 the *loop* correct, not the *agent* effective. Measuring effectiveness needs the
 benchmark suite and real models, which is Phase 8.
+
+---
+
+## ADR-023 — Every check runs twice: baseline, then patched
+
+**Decision.** Verification measures the repository *before* applying the patch
+and again afterwards, in the same container image on the same machine. A check
+counts as a regression only if it passed at baseline and does not pass after.
+Failures present in both runs are reported as pre-existing.
+
+**Why.** Real repositories are not green. They have a flaky test, a linter
+complaint nobody has cleaned up, a type error behind a `TODO`. A verifier that
+only runs after the patch cannot tell "the agent broke this" from "this was
+already broken", so it attributes the repository's existing state to the agent.
+
+That failure mode is invisible in a demo — hand-made fixtures are always clean —
+and destroys the benchmark the moment it meets real code. Phases 8 and 10 report
+a success rate; the number is meaningless unless the denominator excludes
+failures the agent did not cause. Measuring the baseline is what makes it mean
+something.
+
+It also creates a second, useful class of result: a patch that makes a
+previously failing suite pass. That is a success, and a post-only verifier would
+report it identically to a patch that changed nothing.
+
+**Cost.** Every verification runs the check suite twice, roughly doubling the
+wall-clock cost of the slowest part of the pipeline. Phase 17 can skip the
+baseline when a repository's state is already known, but not before that state
+is something Rewire records.
+
+---
+
+## ADR-024 — "Not checked" and "not passing" are different results
+
+**Decision.** A check has five statuses: `PASSED`, `FAILED`, `TIMED_OUT`,
+`UNAVAILABLE` (the tool is not in the image) and `SKIPPED` (the repository does
+not configure it). `VERIFIED` requires a test suite that actually ran and
+passed; everything else is `INCONCLUSIVE`, which is a distinct verdict from
+`REGRESSED`.
+
+**Why.** Collapsing these into a boolean is how a tool ends up reporting green
+for a repository it never executed. Each of the three non-answers has a
+different cause and a different fix, and none of them is evidence:
+
+- A repository with no tests would report "0 failures" under any naive scheme.
+- `pytest` exits **5** when it collects nothing — not zero, but close enough to
+  be mistaken for success by an exit-code check that only tests `!= 0`.
+- A missing linter and a failing linter both produce a non-zero exit.
+
+So `rewire verify` on a repository without tests says `INCONCLUSIVE`, not
+`VERIFIED`, and says why. The point of the sandbox is to make Rewire's claims
+falsifiable; a claim that quietly covers the case where nothing ran is not.
+
+**Cost.** More verdicts to reason about, and an honest report is often less
+satisfying than a green tick. `INCONCLUSIVE` exits non-zero from `propose
+--verify`, which means "we could not confirm this" is treated as failure — the
+right default, but it will annoy someone whose repository has no tests.
+
+---
+
+## ADR-025 — The sandbox is the security boundary, and it is tested by attack
+
+**Decision.** Checks run in a container with `--network none`, all capabilities
+dropped, `no-new-privileges`, a read-only root filesystem, a size-capped tmpfs,
+hard memory/CPU/PID ceilings, a non-root user, and a host-enforced timeout
+followed by `docker rm -f`. Each restriction has an integration test that tries
+to break it.
+
+**Why.** Rewire executes code it did not write, from repositories it does not
+trust, after a language model that read those repositories has edited them. That
+is three separate reasons for the code in the container to be hostile, and the
+container is the only thing between it and the host.
+
+Asserting the flags appear in the argv proves only that Rewire *meant* to be
+isolated. The integration tests open a socket, write outside the workspace, and
+fork until the kernel refuses — and assert each attempt fails. The pid ceiling
+test is the clearest: a fork bomb stops at the limit and the run completes.
+
+The timeout is enforced by the host, not requested of the container, because a
+container that ignores its own limits is exactly the case the limit exists for.
+
+**Cost.** A container per command, so per-check overhead is roughly a second.
+The read-only root filesystem also means the sandbox image must be usable
+without writing to it, which is why the virtual environment lives inside the
+staged repository rather than in `/usr/local`.
+
+---
+
+## ADR-026 — Installation is the one step permitted the network
+
+**Decision.** Dependency installation runs with `--network bridge`; every check
+runs with `--network none`. Installation is reported as its own step in the
+verification report, and a repository that declares no dependencies never
+touches the network at all. `--no-install` forces a fully offline run.
+
+**Why.** Checks that cannot import the project prove nothing, so something has
+to fetch dependencies. Nothing else needs the network — and a test suite with
+network access is a test suite that can reach a real API with real credentials,
+or exfiltrate the repository it is verifying.
+
+The honest part is that `pip install -e .` **executes the repository's build
+backend**. That is untrusted code with network access, which is the weakest
+point in the design. It is mitigated rather than removed: the install runs under
+exactly the same confinement as everything else — non-root, capability-free,
+resource-capped, in a disposable container over a disposable copy — and it is
+reported separately so that the one moment the sandbox is online is visible in
+the output rather than implied by it.
+
+**Cost.** A verification run is not reproducible: `pip install` resolves
+whatever is current, so a patch verified today may verify differently next
+month. Phase 8 needs pinned images per benchmark case for the published numbers
+to be reproducible, and that is recorded as debt rather than solved here.
