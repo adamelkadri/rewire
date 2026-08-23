@@ -33,6 +33,13 @@ from rewire.core.config import LogLevel, Settings, get_settings
 from rewire.core.doctor import CheckStatus, DoctorReport, run_checks
 from rewire.core.errors import RewireError
 from rewire.core.logging import configure_from_settings
+from rewire.evals import render_markdown, run_evaluation, write_results
+from rewire.impact import (
+    DEFAULT_MIN_CONFIDENCE,
+    ImpactReport,
+    analyse_impact,
+    attach_snippets,
+)
 
 app = typer.Typer(
     name="rewire",
@@ -420,6 +427,162 @@ def search(
             f"\n[bold]{len(references)}[/bold] parsed reference(s), "
             f"[bold]{len(matches)}[/bold] text match(es)"
         )
+
+
+def _confidence_markup(confidence: float) -> str:
+    if confidence >= 0.9:
+        return f"[red]{confidence:.2f}[/red]"
+    if confidence >= 0.6:
+        return f"[yellow]{confidence:.2f}[/yellow]"
+    return f"[green]{confidence:.2f}[/green]"
+
+
+def _render_impact(report: ImpactReport, *, explain: bool) -> None:
+    if not report.impacts or report.summary.locations == 0:
+        console.print("[green]No affected code found for the detected changes.[/green]")
+        return
+
+    for impact in report.impacts:
+        if not impact.locations:
+            continue
+        change = impact.change
+        subject = escape(change.field_path or change.endpoint or "")
+        heading = f"[bold]{escape(change.type.value)} — {subject}[/bold]"
+        if change.replacement:
+            heading += f" [cyan]->[/cyan] [bold]{escape(change.replacement)}[/bold]"
+        console.print(
+            f"\n{heading} {_SEVERITY_MARKUP[change.severity]} {escape(change.endpoint or '')}"
+        )
+
+        table = Table(show_header=True, header_style="bold", box=None, pad_edge=False)
+        table.add_column("Conf", no_wrap=True)
+        table.add_column("Location", no_wrap=True)
+        table.add_column("Symbol", overflow="fold")
+        table.add_column("Code", overflow="fold")
+        for location in impact.locations:
+            table.add_row(
+                _confidence_markup(location.confidence),
+                escape(location.location),
+                escape(location.symbol or "-"),
+                escape(location.snippet or ""),
+            )
+        console.print(table)
+
+        if explain:
+            for location in impact.locations:
+                console.print(f"  [dim]{escape(location.location)}[/dim]")
+                for signal in location.signals:
+                    colour = "green" if signal.weight > 0 else "red"
+                    console.print(
+                        f"    [{colour}]{signal.weight:+.1f}[/{colour}]  {escape(signal.detail)}"
+                    )
+
+    summary = report.summary
+    console.print(
+        f"\n[bold]{summary.locations}[/bold] location(s) across "
+        f"[bold]{summary.files_affected}[/bold] file(s), from "
+        f"{summary.changes_with_impact}/{summary.changes_analysed} change(s); "
+        f"{summary.test_locations} in tests"
+    )
+
+
+@app.command()
+def impact(
+    repo: Annotated[
+        Path,
+        typer.Argument(exists=True, file_okay=False, readable=True, help="Repository root."),
+    ],
+    old_spec: Annotated[
+        Path,
+        typer.Option("--old", exists=True, dir_okay=False, help="Previous OpenAPI spec."),
+    ],
+    new_spec: Annotated[
+        Path, typer.Option("--new", exists=True, dir_okay=False, help="New OpenAPI spec.")
+    ],
+    package: Annotated[
+        list[str] | None,
+        typer.Option("--package", help="Package the API belongs to; inferred when omitted."),
+    ] = None,
+    min_confidence: Annotated[
+        float,
+        typer.Option("--min-confidence", min=0.0, max=1.0, help="Discard weaker locations."),
+    ] = DEFAULT_MIN_CONFIDENCE,
+    min_severity: Annotated[
+        Severity, typer.Option("--min-severity", help="Ignore less severe changes.")
+    ] = Severity.NON_BREAKING,
+    explain: Annotated[
+        bool, typer.Option("--explain", help="Show the evidence behind every score.")
+    ] = False,
+    as_json: Annotated[bool, typer.Option("--json", help="Emit the report as JSON.")] = False,
+) -> None:
+    """Find the code in a repository that an API change affects.
+
+    Joins deterministic change detection to a deterministic repository index and
+    scores every candidate against an auditable evidence model. No LLM is
+    involved, and nothing is modified: this command only reports.
+    """
+    changes = diff_specs(load_spec(old_spec), load_spec(new_spec))
+    index = build_index(repo)
+    report = attach_snippets(
+        analyse_impact(
+            changes,
+            index,
+            packages=tuple(package or ()),
+            min_confidence=min_confidence,
+            min_severity=min_severity,
+        ),
+        index.root,
+    )
+
+    if as_json:
+        console.print_json(report.model_dump_json(exclude_none=True))
+        return
+    _render_impact(report, explain=explain)
+
+
+eval_app = typer.Typer(help="Run Rewire's benchmarks.", no_args_is_help=True)
+app.add_typer(eval_app, name="eval")
+
+
+@eval_app.command("impact")
+def eval_impact(
+    dataset: Annotated[
+        Path,
+        typer.Option("--dataset", exists=True, file_okay=False, help="Labelled cases."),
+    ] = Path("evals/datasets/impact"),
+    min_confidence: Annotated[
+        float, typer.Option("--min-confidence", min=0.0, max=1.0)
+    ] = DEFAULT_MIN_CONFIDENCE,
+    results: Annotated[
+        Path, typer.Option("--results", help="Directory to write latest.json/latest.md.")
+    ] = Path("evals/results"),
+    write: Annotated[bool, typer.Option("--write/--no-write", help="Write result files.")] = True,
+    fail_under: Annotated[
+        float,
+        typer.Option("--fail-under", min=0.0, max=1.0, help="Exit non-zero below this F1."),
+    ] = 0.0,
+) -> None:
+    """Score impact analysis against labelled ground truth.
+
+    Reports precision, recall and F1 at two granularities. Location metrics are
+    the stricter of the two and are always shown, because reporting only the
+    file-level number would flatter the result.
+    """
+    result = run_evaluation(dataset, min_confidence=min_confidence, version=__version__)
+    console.print(render_markdown(result))
+
+    if write:
+        json_path, markdown_path = write_results(result, results)
+        console.print(
+            f"\n[dim]wrote {escape(str(json_path))} and {escape(str(markdown_path))}[/dim]"
+        )
+
+    if result.location_metrics.f1 < fail_under:
+        console.print(
+            f"[red]location F1 {result.location_metrics.f1:.3f} "
+            f"is below the required {fail_under:.3f}[/red]"
+        )
+        raise typer.Exit(code=EXIT_FAILURE)
 
 
 def main() -> None:

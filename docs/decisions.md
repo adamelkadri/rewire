@@ -322,3 +322,115 @@ to be worse than an honest gap.
 
 **Cost.** Repositories that declare dependencies only in `setup.py` report none.
 That is visible in the analysis output rather than silently wrong.
+
+---
+
+## ADR-014 — Impact confidence is accumulated in log-odds
+
+**Decision.** Each piece of evidence about a candidate location contributes a
+weight in log-odds; the weights are summed and passed through a sigmoid to give
+a confidence in `[0, 1]`. Every contributing signal is stored on the location.
+
+**Why.** Three properties fall out of the shape rather than needing to be built:
+weights *add*, so a score is a sum a reader can check by eye; evidence *against*
+is just a negative weight, with no separate veto mechanism; and the sigmoid keeps
+results bounded without clamping, so strong evidence saturates smoothly instead
+of piling up at 1.0 and destroying the ordering among top candidates.
+
+Storing the signals matters as much as the score. "0.98" is not reviewable;
+"+2.0 argument to `openai.OpenAI.chat.completions.create`, +1.6 occurs as a
+keyword argument, +1.0 file imports openai" is. Phase 4's agent gets the reasons,
+not just the number.
+
+**Cost.** The weights are hand-assigned priors, not fitted parameters. They are
+honest about being a prior and are asserted against ground truth rather than
+trusted, but they are guesses until Phase 8 fits them to labelled data.
+
+---
+
+## ADR-015 — Impact direction must agree with how the code uses the name
+
+**Decision.** A candidate is scored against whether the direction the field
+travels agrees with the way the code writes the name. Request fields are
+*written* — keyword arguments, dict keys, forwarded parameters. Response fields
+are *read* — attributes and subscripts. Disagreement carries a large negative
+weight.
+
+**Why.** Without it, every generic response field name matched the request
+payloads that happen to share it. `choices[].message.role` changing scored the
+`{"role": "user"}` in an outgoing request as highly affected, because name
+matching alone cannot tell producing from consuming. The same distinction
+separates code that genuinely breaks when a response field becomes optional from
+a test double that merely constructs one.
+
+This is the same variance insight as ADR-010, applied one layer down: there it
+decides how severe a change is, here it decides whether a line is affected.
+
+**Cost.** Depends on Phase 1 having recorded which part of the operation a change
+belongs to, so the two phases are coupled through `ChangeLocation`. Bare names
+and string literals say nothing about direction, so the signal is silent for
+them and those candidates rest on weaker evidence.
+
+---
+
+## ADR-016 — Absence of evidence is not evidence of absence
+
+**Decision.** When no package can be attributed to a specification, package-based
+signals are omitted entirely rather than being counted as negative. A negative
+package signal fires only when the repository shows no sign of the package at
+all — neither declared nor imported anywhere.
+
+**Why.** The temptingly simple rule is "the file does not import the SDK, so
+score it down". Applied when Rewire simply failed to work out *which* SDK, it
+would score every real call site in the repository as unaffected. That failure
+mode is silent and total: a confident report of nothing.
+
+The same care applies to an explicitly supplied `--package`. The caller may know
+about a vendored or implicitly available dependency the index cannot see, so an
+explicit choice is honoured as given.
+
+**Cost.** Repositories using a client library whose name Rewire cannot derive
+from the specification title lose the strongest available signals, and rely on
+syntactic evidence alone. `--package` exists for exactly that case.
+
+---
+
+## ADR-017 — Candidates are proposed generously and filtered by one model
+
+**Decision.** Several independent strategies propose candidate locations —
+field-name references, endpoint-path literals — without judging them. All
+scoring happens afterwards, in one place, and a location proposed by two
+strategies is kept once at its best score.
+
+**Why.** Filtering during discovery spreads precision decisions across every
+strategy, where they are invisible and inconsistent. Concentrating them makes
+the trade-off tunable in a single file, auditable in a single report, and
+measurable by a single benchmark. It also means adding a strategy can only cost
+recall-neutral work, never silently change how existing candidates are graded.
+
+**Cost.** More candidates are scored than survive, which is wasted work on a
+large repository. Measured at well under a millisecond per case today, so the
+simplicity is worth more than the cycles.
+
+---
+
+## ADR-018 — Every benchmark case is labelled with reasons, and one expects nothing
+
+**Decision.** Ground truth lives in `evals/datasets/impact/`, version controlled
+alongside the code. Each expected location carries a written reason. The dataset
+includes a case whose expected result is *empty*.
+
+**Why.** Ground truth is an opinion. Recording why each line is labelled affected
+lets a reader disagree with the opinion rather than be silently governed by it,
+and a test asserts every label points at a line that really contains the field,
+so fixture edits cannot quietly invalidate the benchmark.
+
+The negative case is the important one. A benchmark made only of repositories
+that *do* use the API rewards eagerness: an analyser that reported every
+occurrence of every name would score perfect recall and respectable F1. The
+`unrelated` case — a repository that reuses the API's vocabulary and none of its
+behaviour — is the only thing that distinguishes care from enthusiasm.
+
+**Cost.** Labelling by hand does not scale, and five cases are far too few to
+fit weights against. The current perfect score says the analyser handles the
+cases considered so far, and nothing stronger.

@@ -1,0 +1,18 @@
+{
+  "name": "decoys",
+  "description": "One genuine SDK call site surrounded by decoys: a local helper with an identically named parameter, an unrelated dict key, the name inside a log string, and a different library that also accepts max_tokens. Measures precision, which recall-only datasets cannot.",
+  "packages": ["openai"],
+  "targets": [
+    {
+      "change_type": "request_field_removed",
+      "field_path": "max_tokens",
+      "expected": [
+        {
+          "file": "app/real.py",
+          "line": 13,
+          "reason": "the only keyword argument on a resolved SDK call in this repository"
+        }
+      ]
+    }
+  ]
+}

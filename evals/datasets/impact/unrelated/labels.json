@@ -1,0 +1,17 @@
+{
+  "name": "unrelated",
+  "description": "A repository that never touches the API but reuses its vocabulary: model, max_tokens, completion_tokens, total_tokens. Every target expects zero locations. Reporting anything here is a false positive, and a benchmark without such a case cannot tell a careful analyser from an eager one.",
+  "packages": ["openai"],
+  "targets": [
+    {
+      "change_type": "request_field_removed",
+      "field_path": "max_tokens",
+      "expected": []
+    },
+    {
+      "change_type": "response_field_became_optional",
+      "field_path": "usage.completion_tokens",
+      "expected": []
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "name": "raw_http",
+  "description": "A repository calling the API over raw HTTP with no SDK installed. Name resolution finds nothing, so the endpoint path is the only available handle. Measures whether the path strategy earns its place.",
+  "packages": [],
+  "targets": [
+    {
+      "change_type": "request_field_removed",
+      "field_path": "max_tokens",
+      "expected": [
+        {
+          "file": "app/http_client.py",
+          "line": 21,
+          "reason": "JSON body key sent to the changed endpoint"
+        }
+      ]
+    }
+  ]
+}

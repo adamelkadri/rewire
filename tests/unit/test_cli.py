@@ -418,3 +418,141 @@ def test_verbose_flag_reaches_module_level_loggers(sample_repo: Path) -> None:
         env={**os.environ, "REWIRE_LOG_FORMAT": "json"},
     )
     assert "repository_indexed" in completed.stderr
+
+
+# ------------------------------------------------------------------- impact --
+
+IMPACT_CASE = Path("evals/datasets/impact/openai_max_tokens")
+
+
+def impact_args(*extra: str) -> list[str]:
+    return [
+        "impact",
+        str(IMPACT_CASE / "repo"),
+        "--old",
+        str(IMPACT_CASE / "old.yaml"),
+        "--new",
+        str(IMPACT_CASE / "new.yaml"),
+        *extra,
+    ]
+
+
+def test_impact_reports_affected_locations() -> None:
+    result = runner.invoke(app, impact_args("--min-severity", "breaking"))
+    assert result.exit_code == 0
+    assert "app/client.py:14" in result.stdout
+    assert "location(s) across" in result.stdout
+
+
+def test_impact_shows_the_replacement_name() -> None:
+    result = runner.invoke(app, impact_args("--min-severity", "breaking"))
+    assert "max_completion_tokens" in result.stdout
+    assert "[cyan]" not in result.stdout  # markup must render, not leak
+
+
+def test_impact_includes_source_snippets() -> None:
+    result = runner.invoke(app, impact_args("--min-severity", "breaking"))
+    assert "max_tokens=max_tokens" in result.stdout
+
+
+def test_impact_explain_shows_the_evidence() -> None:
+    result = runner.invoke(app, impact_args("--min-severity", "breaking", "--explain"))
+    assert "occurs as a keyword argument" in result.stdout
+    assert "+2.0" in result.stdout
+
+
+def test_impact_json_output() -> None:
+    result = runner.invoke(app, impact_args("--json"))
+    payload = json.loads(result.stdout)
+    assert payload["summary"]["locations"] >= 5
+    location = payload["impacts"][0]["locations"][0]
+    assert 0.0 <= location["confidence"] <= 1.0
+    assert location["signals"]
+
+
+def test_impact_min_confidence_is_applied() -> None:
+    permissive = json.loads(runner.invoke(app, impact_args("--json")).stdout)
+    strict = json.loads(
+        runner.invoke(app, impact_args("--json", "--min-confidence", "0.999")).stdout
+    )
+    assert strict["summary"]["locations"] < permissive["summary"]["locations"]
+
+
+def test_impact_accepts_an_explicit_package() -> None:
+    result = runner.invoke(app, impact_args("--json", "--package", "openai"))
+    assert json.loads(result.stdout)["impacts"][0]["packages"] == ["openai"]
+
+
+def test_impact_on_an_unaffected_repository(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("x = 1\n", encoding="utf-8")
+    result = runner.invoke(
+        app,
+        [
+            "impact",
+            str(tmp_path),
+            "--old",
+            str(IMPACT_CASE / "old.yaml"),
+            "--new",
+            str(IMPACT_CASE / "new.yaml"),
+        ],
+    )
+    assert result.exit_code == 0
+    assert "No affected code" in result.stdout
+
+
+# --------------------------------------------------------------------- eval --
+
+
+def test_eval_impact_reports_metrics(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["eval", "impact", "--results", str(tmp_path), "--no-write"])
+    assert result.exit_code == 0
+    assert "| location |" in result.stdout
+    assert "| file |" in result.stdout
+
+
+def test_eval_impact_writes_result_files(tmp_path: Path) -> None:
+    result = runner.invoke(app, ["eval", "impact", "--results", str(tmp_path)])
+    assert result.exit_code == 0
+    assert (tmp_path / "latest.json").is_file()
+    assert (tmp_path / "latest.md").is_file()
+
+
+def test_eval_impact_fail_under_passes_when_met(tmp_path: Path) -> None:
+    result = runner.invoke(
+        app,
+        ["eval", "impact", "--no-write", "--results", str(tmp_path), "--fail-under", "0.9"],
+    )
+    assert result.exit_code == 0
+
+
+def test_eval_impact_fail_under_fails_when_missed(tmp_path: Path) -> None:
+    """The CI gate has to be able to fail, or it is decoration."""
+    result = runner.invoke(
+        app,
+        [
+            "eval",
+            "impact",
+            "--no-write",
+            "--results",
+            str(tmp_path),
+            "--min-confidence",
+            "0.999",
+            "--fail-under",
+            "0.99",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "below the required" in result.stdout
+
+
+def test_eval_help_lists_the_subcommand() -> None:
+    result = runner.invoke(app, ["eval", "--help"])
+    assert result.exit_code == 0
+    assert "impact" in result.stdout
+
+
+def test_impact_renders_changes_without_a_replacement() -> None:
+    """Only renamed fields carry a replacement; the rest must still render."""
+    result = runner.invoke(app, impact_args())
+    assert result.exit_code == 0
+    assert "request_schema_changed" in result.stdout

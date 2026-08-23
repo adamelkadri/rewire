@@ -158,6 +158,9 @@ class FunctionCall(Located):
 
     #: The call target exactly as written, e.g. ``client.chat.completions.create``.
     callee: str
+    #: Last line of the call expression. Real SDK calls span several lines, and
+    #: matching an argument to its call needs the range, not just the start.
+    end_line: int = 0
     #: The same target with its root name resolved through imports and
     #: assignments, e.g. ``openai.OpenAI.chat.completions.create``. ``None`` when
     #: the root could not be traced to an import.
@@ -174,6 +177,10 @@ class FunctionCall(Located):
     def root_name(self) -> str:
         """First segment of the written callee."""
         return self.callee.split(".", maxsplit=1)[0]
+
+    def spans(self, line: int) -> bool:
+        """Whether ``line`` falls inside this call expression."""
+        return self.line <= line <= max(self.end_line, self.line)
 
     def matches(self, pattern: str) -> bool:
         """Whether this call matches ``pattern``.

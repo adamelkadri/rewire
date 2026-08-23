@@ -11,7 +11,7 @@ Legend: **done** · *in progress* · planned
 | 0 | Project foundation: packaging, settings, logging, errors, preflight, CI | **done** |
 | 1 | API change detection (OpenAPI diff, breaking-change classification) | **done** |
 | 2 | Repository analysis (AST index, symbols, imports, usages) | **done** |
-| 3 | Impact analysis (change × repo → ranked affected locations) | planned |
+| 3 | Impact analysis (change × repo → ranked affected locations) | **done** |
 | 4 | First coding agent (tool-restricted, produces candidate patches only) | planned |
 | 5 | Docker sandbox (isolated execution, resource limits, verification) | planned |
 | 6 | Agent repair loop (sandbox feedback → bounded retries) | planned |
@@ -30,6 +30,35 @@ Legend: **done** · *in progress* · planned
 
 Milestones: **0–3** core intelligence · **4–7** working agent · **8–10** measured
 agent · **11–18** production product.
+
+## What Phase 3 delivers
+
+- `rewire impact ./repo --old old.yaml --new new.yaml` — joins detected changes
+  to the code they affect, ranked by confidence, with `--explain` showing the
+  evidence behind every score.
+- A log-odds confidence model whose signals are stored on each location, so a
+  ranking can be audited rather than trusted.
+- Direction-aware matching: a request field is written, a response field is
+  read, and disagreement is strong evidence the name refers to something else.
+- Call-graph proximity, so a test or service layer one hop from the SDK is found
+  even though it imports no client library.
+- `rewire eval impact` — precision, recall and F1 against labelled ground truth
+  at two granularities, writing `evals/results/latest.{json,md}` with the
+  configuration that produced them.
+- Five labelled benchmark cases, including a negative case that expects nothing.
+
+**Current measured result: precision 1.000, recall 1.000, F1 1.000 at both
+location and file granularity, over 9 expected locations in 5 cases.** That is a
+statement about five hand-written cases, not about real-world accuracy; see the
+debt below.
+
+## What Phase 3 explicitly does not deliver
+
+- No file is modified. Phase 3 reports; Phase 4 edits.
+- No LLM involvement anywhere in the pipeline so far.
+- No cross-language analysis: Python only, as in Phase 2.
+- No fitted weights. Every number in the confidence model is a hand-assigned
+  prior.
 
 ## What Phase 2 delivers
 
@@ -133,6 +162,30 @@ agent · **11–18** production product.
 - `module_path_for` does not strip source roots, so a file at `src/pkg/mod.py`
   gets the module path `src.pkg.mod` rather than `pkg.mod`. Consistent, but not
   what the interpreter would call it.
+
+## Known technical debt carried out of Phase 3
+
+- **The benchmark is far too small to justify its own score.** Five cases and
+  nine expected locations, all written by the same person who wrote the
+  analyser. A perfect result here means the obvious failure modes are handled,
+  not that the analyser is accurate. Phase 8 needs cases drawn from real
+  repositories and real migrations, labelled by someone other than the author.
+- Every weight in `impact/scoring.py` is a hand-assigned prior. They were chosen
+  to order candidates the way a reviewer would, and adjusted twice when
+  measurement disagreed, but they are not fitted. Phase 8 should replace them
+  with values chosen from a precision/recall curve.
+- `DEFAULT_MIN_CONFIDENCE` (0.35) is likewise a guess. One benchmark false
+  positive sat at 0.354, which is uncomfortably close; it was fixed by adding a
+  missing signal rather than by moving the threshold, but the threshold itself
+  remains unjustified by data.
+- Package inference matches specification title tokens against names the
+  repository uses. It links `OpenAI API` to `openai` and fails on `GitHub API`
+  to `PyGithub`. `--package` exists for that, but the failure is silent.
+- Rename linking is used for the `replacement` field but the *replacement* name
+  is not yet searched for. A repository already partially migrated will not have
+  its new-name call sites reported as related.
+- Nested renames are not linked at all (Phase 1 limitation), so a change deep in
+  a schema loses its replacement.
 
 ## Known technical debt carried out of Phase 1
 

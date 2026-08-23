@@ -399,3 +399,17 @@ def test_non_string_dict_keys_are_not_references() -> None:
     """A dict may be keyed by ints, or spread with `**other`."""
     info = analyse('{1: "a", **other, "max_tokens": 2}')
     assert [r.name for r in info.references if r.kind is ReferenceKind.DICT_KEY] == ["max_tokens"]
+
+
+def test_keyword_references_use_their_own_line_not_the_calls() -> None:
+    """Real SDK calls span several lines; anchoring to the call misplaces every argument."""
+    source = "client.create(\n    model='m',\n    max_tokens=100,\n)\n"
+    reference = next(r for r in analyse(source).references if r.name == "max_tokens")
+    assert reference.line == 3
+    assert reference.kind is ReferenceKind.KEYWORD_ARGUMENT
+
+
+def test_keyword_references_are_distinct_per_argument() -> None:
+    source = "f(\n    a=1,\n    b=2,\n)\n"
+    lines = {r.name: r.line for r in analyse(source).references if r.name in {"a", "b"}}
+    assert lines == {"a": 2, "b": 3}

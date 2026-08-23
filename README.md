@@ -18,7 +18,8 @@ reasoning and code generation are genuinely required, and it is never permitted
 to declare its own success: correctness is decided by tests, type checks and
 lints executed in a sandbox.
 
-> **Status: Phase 2 — repository analysis.** The build is incremental and each
+> **Status: Phase 3 — impact analysis.** Milestone 1 (core intelligence) is
+> complete: Rewire can tell you what changed and which lines break. The build is incremental and each
 > phase is finished, tested and documented before the next begins. See
 > [docs/roadmap.md](docs/roadmap.md) for what exists today and what does not.
 > Nothing in this README describes behaviour that is not implemented.
@@ -52,7 +53,7 @@ src/rewire/
   llm/         provider-agnostic LLM abstraction                     (Phase 4)
   sandbox/     isolated patch execution and verification             (Phase 5)
   services/    pipeline orchestration                                (Phase 7)
-  evals/       benchmark datasets, runners, metrics                  (Phase 8)
+  evals/       benchmark datasets, runners, metrics                  (Phase 3)
   gitio/       Git and GitHub integration                            (Phase 11)
   api/         FastAPI surface                                       (Phase 13)
   models/      persistence models and shared schemas
@@ -201,6 +202,83 @@ uv run rewire analyze ./repo --json | jq '.stats'
 uv run rewire search ./repo max_tokens --mode ast --kind keyword_argument
 uv run rewire search ./repo 'max_\w+' --mode text --regex
 ```
+
+## Find the code an API change breaks
+
+```bash
+uv run rewire impact ./repo --old old-spec.yaml --new new-spec.yaml --explain
+```
+
+Joins the change report to an AST index of the repository and ranks every
+candidate location. Still no LLM, and nothing is modified — this command reports.
+
+```text
+request_field_removed — max_tokens -> max_completion_tokens  breaking  POST /v1/chat/completions
+
+Conf  Location                Symbol                        Code
+1.00  app/client.py:14        app.client.ask                max_tokens=max_tokens,
+1.00  app/summariser.py:14    app.summariser.Summariser.run max_tokens=64,
+1.00  app/client.py:23        app.client.ask_with_payload    "max_tokens": 512,
+0.96  app/client.py:10        app.client.ask                def ask(prompt, max_tokens=256)
+0.88  tests/test_client.py:7  tests.test_client.test_ask     assert ask("hi", max_tokens=10)
+```
+
+`--explain` shows why, because a bare `0.98` is not reviewable:
+
+```text
+app/client.py:14
+  +2.0  argument to openai.OpenAI.chat.completions.create
+  +1.6  occurs as a keyword argument
+  +1.0  file imports openai
+  +0.5  request field is written here
+  +0.3  openai is a declared dependency
+```
+
+Confidence accumulates in **log-odds**, so weights add, evidence *against* is
+just a negative weight, and the score saturates smoothly instead of piling up at
+1.0 ([ADR-014](docs/decisions.md)). The signals that matter most:
+
+- **A resolved call target (+2.0)** is the only signal connecting the *name* to
+  the *library* rather than inferring it from proximity.
+- **Direction agreement.** A request field is written; a response field is read.
+  Getting this wrong made `choices[].message.role` match the `{"role": "user"}`
+  in an outgoing request ([ADR-015](docs/decisions.md)).
+- **Call-graph proximity (+1.2)** rescues a test one hop from the SDK, which
+  imports no client library and would otherwise look exactly like a decoy.
+- **No package attributed → no package signals at all.** Treating "does not
+  import the SDK" as negative when Rewire never worked out *which* SDK would
+  score every real call site as unaffected ([ADR-016](docs/decisions.md)).
+
+## Measured accuracy
+
+Impact analysis is scored against labelled ground truth checked into
+[`evals/datasets/impact/`](evals/datasets/impact/):
+
+```bash
+uv run rewire eval impact          # writes evals/results/latest.{json,md}
+```
+
+| Granularity | Precision | Recall | F1 | TP | FP | FN |
+| --- | --- | --- | --- | --- | --- | --- |
+| location | 1.000 | 1.000 | 1.000 | 9 | 0 | 0 |
+| file | 1.000 | 1.000 | 1.000 | 6 | 0 | 0 |
+
+**Read that with the sample size in mind: five cases, nine expected locations.**
+A perfect score there means the obvious failure modes are handled, not that the
+analyser is accurate in the wild. The number is published with its counts for
+exactly that reason, and expanding the benchmark is Phase 8's job.
+
+The cases are chosen to be able to fail in different ways: three SDK call styles
+in one repository; a `decoys` case where the field name appears on a local
+helper, an unrelated dict, a log string and a *different* library; a `raw_http`
+case with no SDK installed at all; a `response_field` case that both reads and
+constructs the same field; and an `unrelated` case that expects **nothing** —
+without which an analyser that reported every occurrence of every name would
+score respectable F1.
+
+Building this is also what found the bugs. It caught keyword arguments being
+recorded at the *call's* line rather than their own — invisible on the
+single-line calls in the unit tests, wrong on essentially every real SDK call.
 
 ## Verify your environment
 

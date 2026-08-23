@@ -333,6 +333,7 @@ class _FileAnalyser(ast.NodeVisitor):
                 column=node.col_offset,
                 enclosing_symbol=self._enclosing,
                 callee=callee,
+                end_line=node.end_lineno or node.lineno,
                 resolved_callee=resolved,
                 keywords=keywords,
                 positional_count=len(node.args),
@@ -341,8 +342,14 @@ class _FileAnalyser(ast.NodeVisitor):
             )
             self.calls.append(call)
 
-            for name in keywords:
-                self._add_reference(name, ReferenceKind.KEYWORD_ARGUMENT, node, context=callee)
+            # Anchor each keyword to its own position, not the call's. Real
+            # SDK calls span several lines, so using the call node reported
+            # every argument at the line the callee was written on.
+            for keyword in node.keywords:
+                if keyword.arg is not None:
+                    self._add_reference(
+                        keyword.arg, ReferenceKind.KEYWORD_ARGUMENT, keyword, context=callee
+                    )
             self._record_env_call(node, callee, resolved)
 
         self.generic_visit(node)

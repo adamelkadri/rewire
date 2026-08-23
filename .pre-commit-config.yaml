@@ -14,9 +14,9 @@ repos:
         # malformed, which is the behaviour they exist to exercise.
         exclude: ^tests/fixtures/
       - id: end-of-file-fixer
-        exclude: ^tests/fixtures/repos/
+        exclude: ^(tests/fixtures/repos|evals/datasets)/
       - id: trailing-whitespace
-        exclude: ^tests/fixtures/repos/
+        exclude: ^(tests/fixtures/repos|evals/datasets)/
       - id: mixed-line-ending
       - id: detect-private-key
 

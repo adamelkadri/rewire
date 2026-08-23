@@ -1,0 +1,25 @@
+{
+  "name": "response_field",
+  "description": "A response field becoming optional, in a repository that both reads it and constructs it. Reading it is what breaks; the test doubles that write it are unaffected. Separating the two requires knowing which direction the field travels, which name matching alone cannot.",
+  "packages": [
+    "openai"
+  ],
+  "targets": [
+    {
+      "change_type": "response_field_became_optional",
+      "field_path": "usage.completion_tokens",
+      "expected": [
+        {
+          "file": "app/meter.py",
+          "line": 14,
+          "reason": "attribute read of a field the server may now omit"
+        },
+        {
+          "file": "app/meter.py",
+          "line": 19,
+          "reason": "subscript read of the same field from a decoded body"
+        }
+      ]
+    }
+  ]
+}

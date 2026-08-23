@@ -88,10 +88,11 @@ exclude_lines = [
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
-# Fixture repositories are test *data*: Rewire analyses them, it does not own
-# them. They deliberately contain unparseable files, bare prints and unpinned
-# style, all of which are the point of the fixture.
-extend-exclude = ["tests/fixtures/repos"]
+# Fixture and benchmark repositories are input *data*: Rewire analyses them, it
+# does not own them. They deliberately contain unparseable files, bare prints,
+# undocumented helpers and decoy code, all of which is the point. Linting them
+# would force them to stop resembling the real repositories they stand in for.
+extend-exclude = ["tests/fixtures/repos", "evals/datasets"]
 
 [tool.ruff.lint]
 select = [

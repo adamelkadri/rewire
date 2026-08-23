@@ -1,0 +1,4 @@
+[project]
+name = "metering"
+version = "0.1.0"
+dependencies = ["openai>=1.40"]

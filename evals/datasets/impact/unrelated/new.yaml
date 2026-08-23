@@ -1,0 +1,97 @@
+# The same API after the migration. Changes exercised by this pair:
+#   - max_tokens -> max_completion_tokens          (renamed request field)
+#   - functions/function_call -> tools/tool_choice (renamed request fields)
+#   - role enum gains "tool"                       (request enum widened)
+#   - finish_reason enum gains "tool_calls"        (response enum widened)
+#   - usage.completion_tokens becomes optional     (response field weakened)
+#   - system_fingerprint added                     (new response field)
+#   - /v1/completions removed entirely             (endpoint removed)
+openapi: 3.0.3
+info:
+  title: OpenAI API
+  version: "2024-10-01"
+paths:
+  /v1/chat/completions:
+    post:
+      operationId: createChatCompletion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChatCompletionRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateChatCompletionResponse"
+        "429":
+          description: Rate limited
+components:
+  schemas:
+    CreateChatCompletionRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+        max_completion_tokens:
+          type: integer
+          description: Upper bound on generated tokens, including reasoning tokens.
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+        tools:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              parameters: { type: object }
+        tool_choice:
+          type: string
+        stream:
+          type: boolean
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant, tool]
+        content:
+          type: string
+    CreateChatCompletionResponse:
+      type: object
+      required: [id, choices, created, model]
+      properties:
+        id: { type: string }
+        created: { type: integer }
+        model: { type: string }
+        system_fingerprint: { type: string }
+        choices:
+          type: array
+          items:
+            type: object
+            required: [index, message, finish_reason]
+            properties:
+              index: { type: integer }
+              message:
+                $ref: "#/components/schemas/ChatMessage"
+              finish_reason:
+                type: string
+                enum: [stop, length, function_call, tool_calls]
+        usage:
+          type: object
+          required: [prompt_tokens, total_tokens]
+          properties:
+            prompt_tokens: { type: integer }
+            completion_tokens: { type: integer }
+            total_tokens: { type: integer }

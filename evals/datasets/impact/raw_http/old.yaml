@@ -1,0 +1,108 @@
+# Excerpt of the OpenAI Chat Completions API before the o1-era parameter change.
+# Models the real migration: `max_tokens` was deprecated in favour of
+# `max_completion_tokens`, and `function_call`/`functions` gave way to `tools`.
+openapi: 3.0.3
+info:
+  title: OpenAI API
+  version: "2024-05-01"
+paths:
+  /v1/chat/completions:
+    post:
+      operationId: createChatCompletion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateChatCompletionRequest"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateChatCompletionResponse"
+        "429":
+          description: Rate limited
+  /v1/completions:
+    post:
+      operationId: createCompletion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, prompt]
+              properties:
+                model: { type: string }
+                prompt: { type: string }
+                max_tokens: { type: integer }
+      responses:
+        "200":
+          description: OK
+components:
+  schemas:
+    CreateChatCompletionRequest:
+      type: object
+      required: [model, messages]
+      properties:
+        model:
+          type: string
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatMessage"
+        max_tokens:
+          type: integer
+          description: Upper bound on generated tokens.
+        temperature:
+          type: number
+          minimum: 0
+          maximum: 2
+        functions:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              parameters: { type: object }
+        function_call:
+          type: string
+        stream:
+          type: boolean
+    ChatMessage:
+      type: object
+      required: [role, content]
+      properties:
+        role:
+          type: string
+          enum: [system, user, assistant]
+        content:
+          type: string
+    CreateChatCompletionResponse:
+      type: object
+      required: [id, choices, created, model]
+      properties:
+        id: { type: string }
+        created: { type: integer }
+        model: { type: string }
+        choices:
+          type: array
+          items:
+            type: object
+            required: [index, message, finish_reason]
+            properties:
+              index: { type: integer }
+              message:
+                $ref: "#/components/schemas/ChatMessage"
+              finish_reason:
+                type: string
+                enum: [stop, length, function_call]
+        usage:
+          type: object
+          required: [prompt_tokens, completion_tokens, total_tokens]
+          properties:
+            prompt_tokens: { type: integer }
+            completion_tokens: { type: integer }
+            total_tokens: { type: integer }

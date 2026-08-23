@@ -64,6 +64,12 @@ jobs:
           REWIRE_LOG_FORMAT: json
         run: pytest -q --cov=src/rewire --cov-report=term-missing --cov-report=xml
 
+      # The published accuracy figures are a claim; CI has to be able to
+      # falsify them. --fail-under turns the benchmark into a gate rather than
+      # a number in a README nobody re-runs.
+      - name: Benchmark impact analysis
+        run: rewire eval impact --no-write --fail-under 1.0
+
       - name: Upload coverage
         if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@v4

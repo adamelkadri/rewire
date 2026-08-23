@@ -1,0 +1,38 @@
+{
+  "name": "openai_max_tokens",
+  "description": "OpenAI's max_tokens -> max_completion_tokens rename against an application that reaches the SDK three ways: a module-level client, an instance attribute, and a dict payload forwarded with **kwargs.",
+  "packages": ["openai"],
+  "targets": [
+    {
+      "change_type": "request_field_removed",
+      "field_path": "max_tokens",
+      "expected": [
+        {
+          "file": "app/client.py",
+          "line": 10,
+          "reason": "the wrapper's own parameter forwards the field and must be renamed with it"
+        },
+        {
+          "file": "app/client.py",
+          "line": 14,
+          "reason": "keyword argument on a resolved SDK call"
+        },
+        {
+          "file": "app/client.py",
+          "line": 23,
+          "reason": "dict payload key, forwarded to the SDK with **kwargs"
+        },
+        {
+          "file": "app/summariser.py",
+          "line": 14,
+          "reason": "keyword argument on a call through an instance attribute"
+        },
+        {
+          "file": "tests/test_client.py",
+          "line": 7,
+          "reason": "the test passes the old field name and breaks after migration"
+        }
+      ]
+    }
+  ]
+}
