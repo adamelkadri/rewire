@@ -12,7 +12,7 @@ Legend: **done** · *in progress* · planned
 | 1 | API change detection (OpenAPI diff, breaking-change classification) | **done** |
 | 2 | Repository analysis (AST index, symbols, imports, usages) | **done** |
 | 3 | Impact analysis (change × repo → ranked affected locations) | **done** |
-| 4 | First coding agent (tool-restricted, produces candidate patches only) | planned |
+| 4 | First coding agent (tool-restricted, produces candidate patches only) | **done** |
 | 5 | Docker sandbox (isolated execution, resource limits, verification) | planned |
 | 6 | Agent repair loop (sandbox feedback → bounded retries) | planned |
 | 7 | End-to-end MVP (`rewire migrate`) | planned |
@@ -30,6 +30,33 @@ Legend: **done** · *in progress* · planned
 
 Milestones: **0–3** core intelligence · **4–7** working agent · **8–10** measured
 agent · **11–18** production product.
+
+## What Phase 4 delivers
+
+- `rewire propose ./repo --old old.yaml --new new.yaml` — runs the deterministic
+  pipeline, then hands the agent the findings and eight read-and-propose tools.
+- A provider abstraction with Anthropic and OpenAI adapters, plus a scripted
+  provider that makes the loop fully testable offline.
+- Exact-string edits with Rewire computing the unified diff, verified to apply
+  cleanly with `git apply`.
+- A state machine whose terminal success state is `CANDIDATE`, and a
+  `verified` property that is unconditionally `False`.
+- Hard budgets on iterations, tool calls, tokens and files, each a stop
+  condition rather than a hint.
+- Per-run JSONL traces with every prompt, tool call, token and cost, flushed
+  per event so a killed run still leaves a usable trace.
+- Token accounting and cost estimation, where an unpriced model yields `None`
+  rather than zero.
+
+## What Phase 4 explicitly does not deliver
+
+- **No verification of any kind.** Nothing is executed, no test is run, and
+  nothing is written to the target repository.
+- No repair loop: one attempt, no feedback from failures. That is Phase 6.
+- No sandbox. That is Phase 5, and until it exists a candidate patch has no
+  evidence behind it whatsoever.
+- No measured success rate. The agent has been run against one hand-made case;
+  that is a demo, not a benchmark.
 
 ## What Phase 3 delivers
 
@@ -162,6 +189,27 @@ debt below.
 - `module_path_for` does not strip source roots, so a file at `src/pkg/mod.py`
   gets the module path `src.pkg.mod` rather than `pkg.mod`. Consistent, but not
   what the interpreter would call it.
+
+## Known technical debt carried out of Phase 4
+
+- **The agent's own summary is unreliable and is displayed anyway.** In the
+  first live run it claimed to have updated "two occurrences" in a file where
+  the diff shows one. The diff is the truth and is shown alongside, but a reader
+  skimming the summary could still be misled.
+- **Recall varies between runs.** Three live runs on the same case produced
+  three different sets of edits: one missed the dict-literal payload key, one
+  missed nothing, one changed the test file only partially. Phase 8 needs to
+  measure this rather than anecdote it.
+- **The pricing table is a dated snapshot** (`PRICING_SNAPSHOT_DATE`), hand
+  transcribed. It will drift. Unknown models correctly report `None`, but a
+  stale *known* price is silently wrong.
+- One live-model integration test would be valuable, marked `llm` and skipped
+  by default. Currently the adapters are only exercised against stubs, so a
+  breaking SDK change would not be caught until a real run.
+- `AgentBudget.max_output_tokens` defaults to 8192; no measurement justifies
+  that number.
+- The agent is single-attempt and has no notion of its own confidence. It cannot
+  say "I am unsure about this edit", which Phase 6's repair loop will want.
 
 ## Known technical debt carried out of Phase 3
 

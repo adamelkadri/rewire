@@ -65,6 +65,26 @@ def _redact_mapping(mapping: MutableMapping[str, Any]) -> dict[str, Any]:
     return result
 
 
+class _CurrentStderr:
+    """A file-like proxy that resolves ``sys.stderr`` on every write.
+
+    ``WriteLoggerFactory`` captures the file object it is given, so passing
+    ``sys.stderr`` directly binds whatever stream was installed at configuration
+    time. Anything that later replaces it — a test harness capturing output, a
+    caller redirecting streams — leaves the logger writing to a stream that may
+    already be closed. Resolving it per write makes logging follow the current
+    stderr, which is what a caller redirecting it expects.
+    """
+
+    def write(self, message: str) -> int:
+        """Write to the current ``sys.stderr``."""
+        return sys.stderr.write(message)
+
+    def flush(self) -> None:
+        """Flush the current ``sys.stderr``."""
+        sys.stderr.flush()
+
+
 def configure_logging(
     *,
     level: LogLevel = LogLevel.INFO,
@@ -99,7 +119,7 @@ def configure_logging(
     structlog.configure(
         processors=[*shared_processors, renderer],
         wrapper_class=structlog.make_filtering_bound_logger(numeric_level),
-        logger_factory=structlog.WriteLoggerFactory(file=sys.stderr),
+        logger_factory=structlog.WriteLoggerFactory(file=_CurrentStderr()),  # type: ignore[arg-type]
         # Caching would freeze each logger against the configuration active the
         # first time it was used. Modules bind their logger at import, so a
         # later `configure_logging` -- which is exactly what `--verbose` does --

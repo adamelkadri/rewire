@@ -105,3 +105,27 @@ def test_reconfiguration_affects_existing_loggers(capsys: pytest.CaptureFixture[
     configure_logging(level=LogLevel.DEBUG, log_format=LogFormat.JSON)
     logger.debug("after")
     assert "after" in capsys.readouterr().err
+
+
+def test_logging_follows_a_replaced_stderr(capsys: pytest.CaptureFixture[str]) -> None:
+    """The logger must resolve sys.stderr per write, not snapshot it at setup.
+
+    Binding the stream at configuration time left every later log call writing
+    to whatever stream was installed when `configure_logging` ran — which, under
+    a test harness that swaps streams between tests, is one that has since been
+    closed.
+    """
+    import io
+    import sys
+
+    configure_logging(level=LogLevel.INFO, log_format=LogFormat.JSON)
+    capsys.readouterr()
+
+    replacement = io.StringIO()
+    original, sys.stderr = sys.stderr, replacement
+    try:
+        get_logger("test").info("after_replacement")
+    finally:
+        sys.stderr = original
+
+    assert "after_replacement" in replacement.getvalue()

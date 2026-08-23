@@ -434,3 +434,95 @@ behaviour — is the only thing that distinguishes care from enthusiasm.
 **Cost.** Labelling by hand does not scale, and five cases are far too few to
 fit weights against. The current perfect score says the analyser handles the
 cases considered so far, and nothing stronger.
+
+---
+
+## ADR-019 — Edits are exact string replacements, not model-authored diffs
+
+**Decision.** The agent proposes edits as `(file, old_text, new_text)`. Rewire
+computes the unified diff itself. `old_text` must occur exactly once; ambiguity
+is an error returned to the model, never resolved by picking the first match.
+
+**Why.** Asking a model to emit a unified diff is asking it to count lines and
+reproduce context exactly. It gets that wrong often enough that a large share of
+such an agent's failures are malformed hunks rather than bad reasoning — failures
+of transcription, not of judgement. A replacement has no line numbers and no
+context to miscount: it either matches or it does not, and when it does not the
+model gets a precise, actionable error.
+
+Refusing ambiguity matters as much. Silently editing the first of three
+occurrences is the failure mode with no signal: the patch applies, the diff looks
+plausible, and the wrong line changed.
+
+**Cost.** The model must read enough surrounding context to make `old_text`
+unique, which costs tokens. Wholesale rewrites are awkward to express. Both are
+worth paying for edits that are either right or loudly wrong.
+
+---
+
+## ADR-020 — The agent's authority is bounded by its tools, not its instructions
+
+**Decision.** Repository content never enters the system prompt; it arrives only
+as tool results wrapped in an explicit untrusted-data envelope. The tool surface
+is eight read-and-propose operations. There is no shell, no network, no write
+path — `write_patch` is deliberately unreachable from the tool layer, and a test
+asserts the tools module does not even mention it.
+
+**Why.** Rewire reads code it did not write, and a README, docstring or test
+fixture can contain text engineered to read as an instruction. Prompt hardening
+alone is not a security boundary: instructions are advice to a model, and a
+sufficiently well-crafted injection is advice that competes with them.
+
+The structural property is what makes this survivable. Even a fully hijacked
+model can only call the eight tools. The worst it can do is propose a bad patch,
+which the sandbox then fails and the human then rejects. The instructions reduce
+the chance of hijack; the tool surface bounds the damage when they fail.
+
+**Cost.** The agent cannot do anything Rewire has not given it a tool for, so
+each new capability is an explicit decision with an explicit blast radius. That
+is the intended trade.
+
+---
+
+## ADR-021 — The terminal success state is called CANDIDATE
+
+**Decision.** The agent's best possible outcome is `AgentState.CANDIDATE`, its
+output is a `CandidatePatch`, and `MigrationResult.verified` returns `False`
+unconditionally in Phase 4.
+
+**Why.** ADR-002 says the agent cannot grade its own work. Naming the terminal
+state `DONE` would quietly undermine that: every later reader, and every later
+feature, would treat reaching it as evidence the migration worked. It is not —
+Phase 4 never executes anything.
+
+The first live run made the point without being asked to. The model's summary
+claimed it had updated "two occurrences" in a file where the diff shows one; it
+had missed a dict key. A run that reported `DONE` would have been believed.
+
+`verified` exists as an always-false property rather than being absent so that
+Phase 5 has an obvious place to make it mean something, and so code written
+against it today cannot silently change meaning later.
+
+**Cost.** A slightly unusual vocabulary, which this record exists to explain.
+
+---
+
+## ADR-022 — A scripted provider, so the loop is testable without a model
+
+**Decision.** `ScriptedProvider` replays a fixed sequence of responses and
+records every request it received. Every agent test uses it; no test in the
+suite makes a network call.
+
+**Why.** The loop's interesting behaviour is its branching — budget exhaustion,
+tool errors, ambiguous edits, an agent that refuses to terminate. Driving those
+from a live model would be slow, expensive, non-deterministic, and impossible in
+CI without a key. Driving them from a script is exact.
+
+Recording the requests is what makes the security properties testable rather
+than merely asserted: a test can check that the system prompt contains no
+repository content, that every tool result is wrapped as untrusted data, and
+that the offered tool set contains nothing that executes.
+
+**Cost.** A scripted model does not behave like a real one, so these tests prove
+the *loop* correct, not the *agent* effective. Measuring effectiveness needs the
+benchmark suite and real models, which is Phase 8.

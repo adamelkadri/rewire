@@ -15,9 +15,11 @@ from typing import Annotated, assert_never
 import typer
 from rich.console import Console
 from rich.markup import escape
+from rich.syntax import Syntax
 from rich.table import Table
 
 from rewire.__version__ import __version__
+from rewire.agents import AgentBudget, MigrationAgent, MigrationResult, Workspace
 from rewire.analyzers import (
     DiscoveryLimits,
     Reference,
@@ -40,6 +42,7 @@ from rewire.impact import (
     analyse_impact,
     attach_snippets,
 )
+from rewire.llm import build_provider
 
 app = typer.Typer(
     name="rewire",
@@ -582,6 +585,117 @@ def eval_impact(
             f"[red]location F1 {result.location_metrics.f1:.3f} "
             f"is below the required {fail_under:.3f}[/red]"
         )
+        raise typer.Exit(code=EXIT_FAILURE)
+
+
+def _render_migration(result: MigrationResult, *, show_diff: bool) -> None:
+    summary = result.summary
+    verdict = "[yellow]CANDIDATE[/yellow]" if summary.produced_patch else "[red]NO PATCH[/red]"
+    console.print(f"\n{verdict}  {escape(summary.outcome)}")
+    console.print(
+        f"  {summary.iterations} iteration(s), {summary.tool_calls} tool call(s)"
+        f" ({summary.tool_errors} error(s)), {summary.files_changed} file(s) changed"
+    )
+    cost = f"${summary.cost_usd:.4f}" if summary.cost_usd is not None else "unknown"
+    console.print(
+        f"  {summary.usage.total_tokens} tokens"
+        f" ({summary.usage.input_tokens} in / {summary.usage.output_tokens} out),"
+        f" cost {cost}, {summary.duration_seconds:.1f}s"
+    )
+
+    if result.final_message:
+        console.print(f"\n[bold]Agent summary[/bold]\n{escape(result.final_message)}")
+
+    if result.patch.files:
+        console.print("\n[bold]Files changed[/bold]")
+        for change in result.patch.changes:
+            if change.changed:
+                console.print(
+                    f"  {escape(change.file)}"
+                    f"  [green]+{change.added_lines}[/green]"
+                    f" [red]-{change.removed_lines}[/red]"
+                )
+
+    if show_diff and not result.patch.is_empty:
+        console.print("\n[bold]Candidate diff[/bold]")
+        console.print(Syntax(result.patch.unified_diff(), "diff", theme="ansi_dark"))
+
+    console.print(
+        "\n[dim]This patch is a proposal. Rewire has not executed it: no tests were "
+        "run and nothing was written to your repository. Verification arrives in "
+        "Phase 5.[/dim]"
+    )
+
+
+@app.command()
+def propose(
+    repo: Annotated[
+        Path,
+        typer.Argument(exists=True, file_okay=False, readable=True, help="Repository root."),
+    ],
+    old_spec: Annotated[
+        Path, typer.Option("--old", exists=True, dir_okay=False, help="Previous OpenAPI spec.")
+    ],
+    new_spec: Annotated[
+        Path, typer.Option("--new", exists=True, dir_okay=False, help="New OpenAPI spec.")
+    ],
+    package: Annotated[
+        list[str] | None, typer.Option("--package", help="Package the API belongs to.")
+    ] = None,
+    max_iterations: Annotated[
+        int, typer.Option("--max-iterations", min=1, max=50, help="Model turns allowed.")
+    ] = 12,
+    max_tool_calls: Annotated[
+        int, typer.Option("--max-tool-calls", min=1, help="Tool invocations allowed.")
+    ] = 40,
+    show_diff: Annotated[
+        bool, typer.Option("--diff/--no-diff", help="Print the candidate diff.")
+    ] = True,
+    write_patch_to: Annotated[
+        Path | None,
+        typer.Option("--write-diff", help="Write the unified diff to a file."),
+    ] = None,
+) -> None:
+    """Ask the agent to propose a migration patch. Nothing is modified.
+
+    Runs the deterministic pipeline first — spec diff, repository index, impact
+    analysis — and gives the agent only that plus a restricted set of read-only
+    tools. The result is a candidate patch: Rewire has not executed it, and the
+    agent is not permitted to claim it works.
+    """
+    settings = get_settings()
+    provider = build_provider(settings.llm)
+
+    changes = diff_specs(load_spec(old_spec), load_spec(new_spec))
+    index = build_index(repo)
+    impact = analyse_impact(changes, index, packages=tuple(package or ()))
+
+    if impact.summary.locations == 0:
+        console.print("[green]No affected code found; nothing to migrate.[/green]")
+        return
+
+    settings.ensure_data_dirs()
+    agent = MigrationAgent(
+        provider,
+        budget=AgentBudget(
+            max_iterations=max_iterations,
+            max_tool_calls=max_tool_calls,
+            max_tokens=settings.agent.max_tokens_per_task,
+            max_files=settings.agent.max_files_per_patch,
+            max_output_tokens=settings.llm.max_output_tokens,
+        ),
+        runs_dir=settings.runs_dir,
+    )
+    result = agent.run(workspace=Workspace.open(repo), index=index, changes=changes, impact=impact)
+
+    if write_patch_to is not None and not result.patch.is_empty:
+        write_patch_to.write_text(result.patch.unified_diff(), encoding="utf-8")
+        console.print(f"[dim]wrote diff to {escape(str(write_patch_to))}[/dim]")
+
+    _render_migration(result, show_diff=show_diff)
+    console.print(f"[dim]trace: {escape(str(settings.runs_dir / result.summary.run_id))}[/dim]")
+
+    if not result.summary.produced_patch:
         raise typer.Exit(code=EXIT_FAILURE)
 
 

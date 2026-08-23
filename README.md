@@ -18,8 +18,10 @@ reasoning and code generation are genuinely required, and it is never permitted
 to declare its own success: correctness is decided by tests, type checks and
 lints executed in a sandbox.
 
-> **Status: Phase 3 — impact analysis.** Milestone 1 (core intelligence) is
-> complete: Rewire can tell you what changed and which lines break. The build is incremental and each
+> **Status: Phase 4 — first coding agent.** Milestone 1 (core intelligence) is
+> complete and the first LLM has entered the pipeline. The agent produces a
+> *candidate* patch: Rewire does not yet execute it, and the agent is not
+> permitted to claim it works. The build is incremental and each
 > phase is finished, tested and documented before the next begins. See
 > [docs/roadmap.md](docs/roadmap.md) for what exists today and what does not.
 > Nothing in this README describes behaviour that is not implemented.
@@ -279,6 +281,58 @@ score respectable F1.
 Building this is also what found the bugs. It caught keyword arguments being
 recorded at the *call's* line rather than their own — invisible on the
 single-line calls in the unit tests, wrong on essentially every real SDK call.
+
+## Propose a migration
+
+```bash
+uv run rewire propose ./repo --old old-spec.yaml --new new-spec.yaml
+```
+
+Runs everything above — spec diff, AST index, impact analysis — and only then
+calls a model, handing it those findings plus eight read-and-propose tools.
+
+```text
+CANDIDATE  agent proposed a patch
+  4 iteration(s), 9 tool call(s) (0 error(s)), 3 file(s) changed
+  9658 tokens (2818 in / 568 out), cost $0.0206, 7.3s
+
+Files changed
+  app/client.py      +2 -2
+  app/summariser.py  +1 -1
+  tests/test_client.py  +1 -1
+
+This patch is a proposal. Rewire has not executed it: no tests were run and
+nothing was written to your repository.
+```
+
+Three design choices carry this phase:
+
+- **The agent cannot mark its own work successful.** The best terminal state is
+  `CANDIDATE`, the output type is `CandidatePatch`, and `verified` returns
+  `False` unconditionally. The first live run justified the caution: the model's
+  summary claimed two edits in a file where the diff shows one
+  ([ADR-021](docs/decisions.md)).
+- **Edits are exact string replacements, not model-authored diffs.** Asking a
+  model for a unified diff asks it to count lines; a large share of such agents'
+  failures are malformed hunks rather than bad reasoning. Rewire computes the
+  diff, so it is always well formed — and `git apply` accepts it
+  ([ADR-019](docs/decisions.md)).
+- **Authority is bounded by the tool surface, not by the prompt.** Repository
+  content never enters the system prompt and arrives only wrapped as untrusted
+  data. Even a fully hijacked model can only call eight read-and-propose tools:
+  no shell, no network, no write path ([ADR-020](docs/decisions.md)).
+
+Provider is chosen by configuration alone, with no SDK type escaping
+`rewire.llm`:
+
+```bash
+REWIRE_LLM__PROVIDER=openai     REWIRE_LLM__MODEL=gpt-4o
+REWIRE_LLM__PROVIDER=anthropic  REWIRE_LLM__MODEL=claude-opus-5
+```
+
+Every run writes a JSONL trace under `.rewire/runs/<id>/` with each prompt, tool
+call, token count and cost, flushed per event so a killed run still leaves
+something readable.
 
 ## Verify your environment
 

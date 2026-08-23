@@ -1,1 +1,39 @@
-"""Provider-agnostic LLM abstraction. Introduced in Phase 4."""
+"""Provider-agnostic LLM abstraction.
+
+No provider SDK is imported outside this package. Phase 9 compares models by
+swapping the object returned from :func:`build_provider`; that comparison is
+only credible if nothing else changes with it.
+"""
+
+from rewire.llm.base import DEFAULT_MAX_OUTPUT_TOKENS, LLMProvider
+from rewire.llm.models import (
+    LLMResponse,
+    Message,
+    Role,
+    StopReason,
+    ToolCall,
+    ToolSpec,
+    Usage,
+)
+from rewire.llm.pricing import PRICING_SNAPSHOT_DATE, estimate_cost, known_models, pricing_for
+from rewire.llm.registry import build_provider
+from rewire.llm.scripted import ScriptBuilder, ScriptedProvider
+
+__all__ = [
+    "DEFAULT_MAX_OUTPUT_TOKENS",
+    "PRICING_SNAPSHOT_DATE",
+    "LLMProvider",
+    "LLMResponse",
+    "Message",
+    "Role",
+    "ScriptBuilder",
+    "ScriptedProvider",
+    "StopReason",
+    "ToolCall",
+    "ToolSpec",
+    "Usage",
+    "build_provider",
+    "estimate_cost",
+    "known_models",
+    "pricing_for",
+]
