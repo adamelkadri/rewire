@@ -20,8 +20,8 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from rewire.agents.patch import CandidatePatch, write_patch
-from rewire.core.errors import PatchError, SandboxError
+from rewire.agents.patch import CandidatePatch, assert_patch_applies_to, write_patch
+from rewire.core.errors import PatchError
 from rewire.core.logging import get_logger
 from rewire.sandbox.models import (
     CheckKind,
@@ -130,29 +130,6 @@ def _install(
     )
 
 
-def _assert_patch_matches(root: Path, patch: CandidatePatch) -> None:
-    """Refuse to apply a patch whose assumptions no longer hold.
-
-    The agent proposed edits against the content it read. If the staged copy
-    differs — because the working tree changed, or because the patch was saved
-    and replayed later — writing the ``after`` text would silently discard
-    whatever else is in the file.
-
-    Raises:
-        SandboxError: A file's current content is not what the patch expects.
-    """
-    for change in patch.changes:
-        if not change.changed:
-            continue
-        target = root / change.file
-        current = target.read_bytes().decode("utf-8", errors="replace") if target.is_file() else ""
-        if current != change.before:
-            raise SandboxError(
-                "the file changed since the patch was proposed; refusing to apply it",
-                file=change.file,
-            )
-
-
 def decide(
     baseline: list[CheckResult], patched: list[CheckResult], *, install: CheckResult | None
 ) -> tuple[Verdict, str, tuple[CheckKind, ...], tuple[CheckKind, ...]]:
@@ -244,8 +221,9 @@ def verify(
         runner_factory: Builds the execution backend; defaults to Docker.
 
     Raises:
-        SandboxError: Staging failed, the sandbox could not run, or the patch
-            no longer matches the repository it was proposed against.
+        SandboxError: Staging failed, or the sandbox could not run.
+        PatchError: The patch no longer matches the repository it was proposed
+            against, so applying it would discard whatever else changed.
         ToolchainError: Docker is unavailable.
     """
     settings = request or VerificationRequest()
@@ -295,7 +273,7 @@ def verify(
                     started=started,
                 )
 
-            _assert_patch_matches(staged.root, patch)
+            assert_patch_applies_to(patch, staged.root)
             try:
                 written = write_patch(patch, staged.root)
             except PatchError as exc:

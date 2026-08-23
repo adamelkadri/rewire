@@ -747,3 +747,82 @@ knowledge of the sandbox at all.
 
 **Cost.** "Where does this live" is now a question with a real answer that has to
 be learned, rather than everything agent-shaped being under `agents`.
+
+---
+
+## ADR-031 — An unverified patch is never written, and there is no flag for it
+
+**Decision.** `rewire migrate --apply` writes only a patch the sandbox confirmed.
+There is no `--force`, no `--yes`, and no confirmation prompt that would let a
+user override it. An unverified patch can still be printed, saved with
+`--write-diff`, and applied by hand.
+
+**Why.** The sandbox exists so that "it looks right" is not a reason to modify
+someone's code. An override flag would make it one, and the flag would be used —
+by someone in a hurry, on the run where it mattered.
+
+The distinction that makes this defensible rather than paternalistic: Rewire is
+not preventing the user from doing anything. `git apply` is one command away.
+It is declining to do it *itself*, on evidence it does not have. Those are
+different, and only the second is Rewire's decision to make.
+
+Note what this rules out. `INCONCLUSIVE` — a repository with no tests — can
+never be applied automatically, no matter how obviously correct the diff looks.
+That is the intended consequence: a repository with no tests has no way to tell
+Rewire it was wrong.
+
+**Cost.** Repositories without a test suite get a report and nothing more, which
+is a large fraction of real repositories. Phase 12's monitoring will have to
+treat "cannot be verified here" as a first-class state rather than a failure.
+
+---
+
+## ADR-032 — Nothing is written into a dirty working tree
+
+**Decision.** `--apply` requires a clean Git working tree. `--allow-dirty`
+overrides it; not being in a Git repository at all is a refusal with no
+override.
+
+**Why.** The safety property is not "Rewire's change is correct" — the sandbox
+covers that. It is "the user can see exactly what Rewire did, and undo it". In a
+clean checkout, `git diff` is precisely Rewire's change and `git checkout --`
+reverts it. In a tree with uncommitted work, the two diffs merge into one and
+the undo is gone.
+
+This is why the Git check is a *precondition for writing* rather than a nicety:
+without version control there is no review step and no revert, so the whole
+"human reviews the diff" story that justifies an autonomous agent touching code
+quietly stops being true.
+
+`--allow-dirty` exists because a user who understands the trade should be able
+to make it. The missing-repository case has no override because there is nothing
+to trade off — no amount of user confidence creates an undo.
+
+**Cost.** A read-only `git` dependency in what was previously a pure-Python
+pipeline, and one more way for `--apply` to decline. Phase 11 will replace much
+of this by committing to a branch, at which point the clean-tree requirement
+becomes a stash-and-branch operation instead of a refusal.
+
+---
+
+## ADR-033 — "Nothing was affected" is a success
+
+**Decision.** `MigrationStatus` has seven members and four of them are
+successes, including `NO_BREAKING_CHANGES` and `NO_AFFECTED_CODE`. Only
+`UNVERIFIED`, `NO_PATCH` and `REFUSED` exit non-zero.
+
+**Why.** The obvious modelling — did we produce a patch? — is wrong for the
+thing Rewire is for. Once Phase 12 watches upstream specifications, the great
+majority of runs will find a spec that moved and a repository that does not care.
+If that exits non-zero, every such run pages someone, and the alerting gets
+switched off long before the run that mattered.
+
+The four-way split also carries real information for a caller. "No breaking
+changes" means the spec diff is the answer and no model was involved. "No
+affected code" means the deterministic analysis ran and found nothing — worth
+distinguishing, because it is the case where a false negative in impact analysis
+would hide a real problem, and Phase 8's benchmark has to measure exactly that.
+
+**Cost.** A caller must know which statuses are successes rather than checking a
+boolean, which is why `is_success` exists on the enum rather than being
+reimplemented at each call site.

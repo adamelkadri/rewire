@@ -219,6 +219,33 @@ class PatchBuilder:
         )
 
 
+def assert_patch_applies_to(patch: CandidatePatch, root: Path | str) -> None:
+    """Refuse a patch whose assumptions about the files no longer hold.
+
+    Edits are exact string replacements computed from content the agent read.
+    If a file has changed since — because the working tree moved, or because a
+    saved patch is being replayed later — writing the ``after`` text would
+    silently discard whatever else is now in the file.
+
+    Checked both before verifying a patch and before writing one, because the
+    window between those two is exactly where a repository can move.
+
+    Raises:
+        PatchError: A file's current content is not what the patch expects.
+    """
+    base = Path(root)
+    for change in patch.changes:
+        if not change.changed:
+            continue
+        target = base / change.file
+        current = target.read_bytes().decode("utf-8", errors="replace") if target.is_file() else ""
+        if current != change.before:
+            raise PatchError(
+                "the file changed since the patch was proposed; refusing to apply it",
+                file=change.file,
+            )
+
+
 def write_patch(patch: CandidatePatch, root: Path | str) -> list[str]:
     """Write a candidate patch into a working tree.
 
@@ -253,5 +280,6 @@ __all__ = [
     "FileChange",
     "FileEdit",
     "PatchBuilder",
+    "assert_patch_applies_to",
     "write_patch",
 ]

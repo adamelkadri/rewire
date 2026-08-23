@@ -18,14 +18,13 @@ reasoning and code generation are genuinely required, and it is never permitted
 to declare its own success: correctness is decided by tests, type checks and
 lints executed in a sandbox.
 
-> **Status: Phase 6 — the repair loop closes.** Rewire now detects the API
-> change, finds the affected code, writes a patch, executes it in a sandbox,
-> reads the failure and tries again. Milestone 2 is one phase from complete: a
-> single `rewire migrate` entry point is Phase 7, and the measured success rate
-> across a real dataset is Phase 8. What exists today is a working loop
-> demonstrated on hand-made cases, not a benchmark. See
-> [docs/roadmap.md](docs/roadmap.md) for exactly what that means. Nothing in
-> this README describes behaviour that is not implemented.
+> **Status: Phase 7 — end to end.** `rewire migrate` runs the whole pipeline
+> and, with `--apply`, writes a *verified* patch into a clean Git working tree.
+> Milestone 2 is complete. What is missing is the number: everything so far is
+> demonstrated on hand-made cases, and the measured success rate across a real
+> dataset nobody tuned against is Phase 8. See
+> [docs/roadmap.md](docs/roadmap.md) for exactly what exists. Nothing in this
+> README describes behaviour that is not implemented.
 
 ---
 
@@ -85,6 +84,58 @@ With plain pip:
 python3.12 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 ```
+
+## The whole thing, in one command
+
+```bash
+uv run rewire migrate ./repo --old old-spec.yaml --new new-spec.yaml --apply
+```
+
+Spec diff → AST index → impact analysis → agent → sandbox → repair → write. A
+real run, against a repository where the renamed field also appears as a dict
+key in a file the impact analysis does not rank highly:
+
+```text
+┏━━━┳━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ # ┃ Files ┃ Verdict   ┃ Tokens ┃ Why                                         ┃
+┡━━━╇━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ 1 │ 2     │ regressed │   7641 │ the patch broke checks that passed before   │
+│ 2 │ 3     │ verified  │  16898 │ the test suite passed after the patch       │
+└───┴───────┴───────────┴────────┴─────────────────────────────────────────────┘
+
+APPLIED  verified patch applied to 3 file(s)
+
+Files written
+  app/__init__.py
+  app/budget.py
+  tests/test_payload.py
+
+Review with `git diff`; undo with `git checkout -- app/__init__.py …`.
+```
+
+**Three refusals govern the only command that writes:**
+
+- **An unverified patch is never written, and there is no override flag.** The
+  sandbox exists so that "it looks right" is not a reason to modify someone's
+  code, and a `--force` would make it one. Rewire is not stopping you from
+  applying it — `git apply` is one command away — it is declining to do it
+  itself on evidence it does not have ([ADR-031](docs/decisions.md)).
+- **Nothing is written into a dirty working tree.** Into a clean checkout,
+  `git diff` is exactly Rewire's change and `git checkout` undoes it; into a
+  tree with uncommitted work the two diffs merge and the undo is gone. Outside
+  a Git repository there is no override, because no amount of confidence
+  creates an undo ([ADR-032](docs/decisions.md)).
+- **Nothing is written if a file changed** between verification and writing.
+
+Checked in that order, and the tree check runs *before* the model, so a refusal
+costs milliseconds rather than an agent run.
+
+Four of the seven outcomes are successes — including "the spec moved and
+nothing here uses it", which is what most runs will report once specifications
+are watched automatically, and which would switch off anyone's alerting if it
+exited non-zero ([ADR-033](docs/decisions.md)).
+
+The sections below break the pipeline into the commands that build it.
 
 ## Detect breaking API changes
 

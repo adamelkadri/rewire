@@ -15,7 +15,7 @@ Legend: **done** · *in progress* · planned
 | 4 | First coding agent (tool-restricted, produces candidate patches only) | **done** |
 | 5 | Docker sandbox (isolated execution, resource limits, verification) | **done** |
 | 6 | Agent repair loop (sandbox feedback → bounded retries) | **done** |
-| 7 | End-to-end MVP (`rewire migrate`) | planned |
+| 7 | End-to-end MVP (`rewire migrate`) | **done** |
 | 8 | Evaluation framework (datasets, metrics, published results) | planned |
 | 9 | Model comparison across providers | planned |
 | 10 | Agent ablations (AST vs text, repair on/off, context strategies) | planned |
@@ -30,6 +30,43 @@ Legend: **done** · *in progress* · planned
 
 Milestones: **0–3** core intelligence · **4–7** working agent · **8–10** measured
 agent · **11–18** production product.
+
+## What Phase 7 delivers
+
+- `rewire migrate ./repo --old old.yaml --new new.yaml` — the whole pipeline in
+  one command: spec diff, index, impact, agent, sandbox, repair.
+- `--apply`, the first thing in Rewire that writes to the user's repository, and
+  the three refusals that govern it:
+  - an **unverified** patch is never written, and there is no override flag;
+  - nothing is written into a **dirty** Git working tree without `--allow-dirty`,
+    and nothing at all outside a Git repository;
+  - nothing is written if a file **changed** between verification and writing.
+- The dirty-tree check runs *before* the model is called, so a refusal costs
+  milliseconds rather than an agent run and two container runs.
+- Seven terminal statuses, four of them successes. "The spec moved and nothing
+  here uses it" exits zero, because that is what most runs will say once Phase 12
+  watches specifications automatically.
+- `migration.json` per run — status, attempts, verdicts, tokens, cost, files
+  written — recorded for every run including the ones where nothing happened,
+  because that is the dataset Phase 8 aggregates.
+- Read-only Git inspection in `gitio/`, which Phase 11 extends to branches and
+  pull requests.
+
+**Demonstrated live, end to end:** a repository where the renamed field also
+appears as a dict key in a file the impact analysis does not rank. The first
+attempt missed it, the sandbox caught it, the second attempt fixed it, and the
+verified patch was written to a clean checkout — three files, 21 524 tokens,
+$0.044, 75.5s. The repository's tests pass afterwards when run independently,
+and `git diff` shows exactly the three files and nothing else.
+
+## What Phase 7 explicitly does not deliver
+
+- **No branch, no commit, no pull request.** `--apply` writes into the working
+  tree and stops. Phase 11 does the rest.
+- No measured success rate. Still one hand-made case; Phase 8 is the benchmark.
+- No concurrency, no resume: a killed run leaves its traces but cannot be
+  continued.
+- Nothing reads `migration.json` back yet.
 
 ## What Phase 6 delivers
 
@@ -254,6 +291,26 @@ debt below.
   reads it yet.
 - No Git or GitHub operations, no HTTP API, no dashboard.
 - No evaluation datasets or published metrics.
+
+## Known technical debt carried out of Phase 7
+
+- **`--apply` writes into the working tree and stops.** No branch, no commit, no
+  pull request, so the "review before merge" story depends entirely on the user
+  running `git diff`. Phase 11 replaces this.
+- A repository with no tests can never be applied automatically, because it can
+  never be `VERIFIED`. That is intended (ADR-031), but it excludes a large
+  fraction of real repositories and Phase 12 will need a first-class state for
+  it rather than treating it as failure.
+- `MigrationRequest` carries both *what* to migrate and *how far to go*, which
+  will not survive Phase 13's HTTP API — a request body should not be able to
+  set `allow_dirty`.
+- `migration.json` has no schema and no version field. Phase 8 will read it, at
+  which point the format becomes an interface that needs both.
+- The clean-tree check runs before the model *and* the content check runs before
+  the write, but nothing holds a lock in between. A concurrent editor can still
+  change a file Rewire is not about to rewrite, and that goes unnoticed.
+- `run_migration` takes settings and does its own wiring. The Phase 13 API will
+  want it to accept an already-built agent and sandbox policy instead.
 
 ## Known technical debt carried out of Phase 6
 

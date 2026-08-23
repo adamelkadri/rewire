@@ -7,6 +7,12 @@ import ``rewire.sandbox`` back. A composition layer that depends on both, and
 which nothing else depends on, keeps every arrow pointing one way.
 """
 
+from rewire.services.migrate import (
+    MigrationOutcome,
+    MigrationRequest,
+    MigrationStatus,
+    run_migration,
+)
 from rewire.services.repair import (
     REPAIRABLE,
     Attempt,
@@ -18,7 +24,11 @@ from rewire.services.repair import (
 __all__ = [
     "REPAIRABLE",
     "Attempt",
+    "MigrationOutcome",
+    "MigrationRequest",
+    "MigrationStatus",
     "RepairOutcome",
     "RepairPolicy",
     "migrate_with_repair",
+    "run_migration",
 ]

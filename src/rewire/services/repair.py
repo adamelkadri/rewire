@@ -130,15 +130,30 @@ class RepairOutcome:
         return next((attempt for attempt in self.attempts if attempt.verified), None)
 
     @property
+    def best(self) -> Attempt | None:
+        """The attempt worth reporting: the verified one, else the last real patch.
+
+        Not simply the last attempt. A final attempt can end without a patch at
+        all -- the model refused, or the request failed -- and treating that as
+        the result would discard a genuine candidate an earlier attempt
+        produced, reporting "no patch" for a run that plainly made one.
+        """
+        if (verified := self.verified) is not None:
+            return verified
+        return next(
+            (attempt for attempt in reversed(self.attempts) if not attempt.patch.is_empty), None
+        )
+
+    @property
     def patch(self) -> CandidatePatch:
-        """The verified patch if there is one, else the last one proposed."""
-        chosen = self.verified or self.final
+        """The verified patch if there is one, else the best candidate proposed."""
+        chosen = self.best
         return chosen.patch if chosen else CandidatePatch()
 
     @property
     def verdict(self) -> Verdict:
         """The verdict on the patch being reported."""
-        chosen = self.verified or self.final
+        chosen = self.best
         if chosen is None or chosen.report is None:
             return Verdict.INCONCLUSIVE
         return chosen.report.verdict

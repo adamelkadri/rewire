@@ -57,7 +57,15 @@ from rewire.sandbox import (
     verify,
 )
 from rewire.sandbox import CheckStatus as SandboxCheckStatus
-from rewire.services import RepairOutcome, RepairPolicy, migrate_with_repair
+from rewire.services import (
+    MigrationOutcome,
+    MigrationRequest,
+    MigrationStatus,
+    RepairOutcome,
+    RepairPolicy,
+    migrate_with_repair,
+    run_migration,
+)
 
 app = typer.Typer(
     name="rewire",
@@ -776,9 +784,9 @@ def _render_repair(outcome: RepairOutcome, *, show_diff: bool) -> None:
             "verification and a later one passed it."
         )
 
-    final = outcome.verified or outcome.final
-    if final is not None and final.report is not None:
-        _render_verification(final.report)
+    best = outcome.best
+    if best is not None and best.report is not None:
+        _render_verification(best.report)
 
     if show_diff and not outcome.patch.is_empty:
         heading = "Verified diff" if outcome.verified else "Final candidate diff (unverified)"
@@ -928,6 +936,113 @@ def propose(
     report = verify(repo, result.patch, request=request)
     _render_verification(report)
     if not report.verified:
+        raise typer.Exit(code=EXIT_FAILURE)
+
+
+#: How each terminal status is coloured. Four of the seven are successes.
+MIGRATION_STATUS_STYLE: dict[MigrationStatus, str] = {
+    MigrationStatus.NO_BREAKING_CHANGES: "green",
+    MigrationStatus.NO_AFFECTED_CODE: "green",
+    MigrationStatus.APPLIED: "green",
+    MigrationStatus.VERIFIED: "green",
+    MigrationStatus.REFUSED: "yellow",
+    MigrationStatus.UNVERIFIED: "yellow",
+    MigrationStatus.NO_PATCH: "red",
+}
+
+
+def _render_outcome(outcome: MigrationOutcome, *, show_diff: bool) -> None:
+    """Print what the run concluded, and the evidence behind it."""
+    style = MIGRATION_STATUS_STYLE[outcome.status]
+    console.print(
+        f"\n[{style}]{outcome.status.value.upper().replace('_', ' ')}[/{style}]"
+        f"  {escape(outcome.summary_line())}"
+    )
+
+    if outcome.changes is not None:
+        summary = outcome.changes.summary
+        locations = outcome.impact.summary.locations if outcome.impact else 0
+        console.print(
+            f"[dim]{summary.total} change(s), {summary.breaking} breaking; "
+            f"{locations} affected location(s)[/dim]"
+        )
+
+    if outcome.repair is not None and outcome.repair.attempts:
+        _render_repair(outcome.repair, show_diff=show_diff and not outcome.written)
+
+    if outcome.written:
+        console.print("\n[bold]Files written[/bold]")
+        for path in outcome.written:
+            console.print(f"  {escape(path)}")
+        console.print(
+            "\n[dim]Review with `git diff`; undo with "
+            f"`git checkout -- {escape(' '.join(outcome.written))}`.[/dim]"
+        )
+
+    console.print(f"[dim]run {escape(outcome.run_id)}, {outcome.duration_seconds:.1f}s[/dim]")
+
+
+@app.command()
+def migrate(
+    repo: Annotated[
+        Path,
+        typer.Argument(exists=True, file_okay=False, readable=True, help="Repository root."),
+    ],
+    old_spec: Annotated[
+        Path, typer.Option("--old", exists=True, dir_okay=False, help="Previous OpenAPI spec.")
+    ],
+    new_spec: Annotated[
+        Path, typer.Option("--new", exists=True, dir_okay=False, help="New OpenAPI spec.")
+    ],
+    package: Annotated[
+        list[str] | None, typer.Option("--package", help="Package the API belongs to.")
+    ] = None,
+    apply_patch: Annotated[
+        bool,
+        typer.Option("--apply", help="Write the verified patch into the working tree."),
+    ] = False,
+    allow_dirty: Annotated[
+        bool,
+        typer.Option("--allow-dirty", help="Permit --apply on a tree with uncommitted changes."),
+    ] = False,
+    max_attempts: Annotated[
+        int, typer.Option("--max-attempts", min=1, max=10, help="Repair attempts allowed.")
+    ] = 3,
+    show_diff: Annotated[
+        bool, typer.Option("--diff/--no-diff", help="Print the resulting diff.")
+    ] = True,
+    write_patch_to: Annotated[
+        Path | None, typer.Option("--write-diff", help="Write the unified diff to a file.")
+    ] = None,
+) -> None:
+    """Detect, locate, patch, verify, repair — and optionally apply.
+
+    The whole pipeline in one command. Without --apply nothing is written and
+    this is a report; with --apply a *verified* patch is written to the working
+    tree, and only ever there.
+
+    Rewire will not write a patch the sandbox did not confirm, and will not
+    write into a working tree with uncommitted changes — into a clean checkout,
+    `git diff` shows exactly what it did and `git checkout` undoes it.
+    """
+    settings = get_settings()
+    outcome = run_migration(
+        MigrationRequest(
+            repository=repo,
+            old_spec=old_spec,
+            new_spec=new_spec,
+            packages=tuple(package or ()),
+            apply=apply_patch,
+            allow_dirty=allow_dirty,
+            max_attempts=max_attempts,
+        ),
+        provider=build_provider(settings.llm),
+        settings=settings,
+    )
+    _write_diff(outcome.patch, write_patch_to)
+    _render_outcome(outcome, show_diff=show_diff)
+
+    if not outcome.status.is_success:
         raise typer.Exit(code=EXIT_FAILURE)
 
 

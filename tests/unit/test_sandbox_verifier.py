@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from rewire.agents.patch import CandidatePatch, FileChange, FileEdit, PatchBuilder
-from rewire.core.errors import SandboxError
+from rewire.core.errors import PatchError
 from rewire.sandbox.models import (
     CheckKind,
     CheckResult,
@@ -180,15 +180,13 @@ def test_a_patch_whose_assumptions_no_longer_hold_is_refused(
     stale = CandidatePatch(
         changes=(FileChange(file="app.py", before="something else entirely\n", after="new\n"),)
     )
-    with pytest.raises(SandboxError, match="changed since the patch was proposed"):
+    with pytest.raises(PatchError, match="changed since the patch was proposed"):
         verify(repo, stale, runner_factory=factory)
 
 
 def test_a_patch_that_cannot_be_written_errors(
     repo: Path, runner: ScriptedRunner, factory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from rewire.core.errors import PatchError
-
     def explode(*args: object, **kwargs: object) -> list[str]:
         raise PatchError("disk is full", file="app.py")
 

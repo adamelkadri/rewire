@@ -439,3 +439,27 @@ def test_an_outcome_with_no_attempts_reports_nothing_rather_than_failing() -> No
     assert outcome.patch.is_empty
     assert outcome.verdict is Verdict.INCONCLUSIVE
     assert not outcome.repaired
+
+
+def test_a_candidate_survives_a_final_attempt_that_produced_nothing(repo: Path) -> None:
+    """The last attempt can fail outright; that must not discard a real patch."""
+    provider = (
+        ScriptBuilder()
+        .calls(
+            "propose_edit",
+            file="app.py",
+            old_text="max_tokens=100",
+            new_text="max_completion_tokens=100",
+            rationale="renamed",
+        )
+        .says("Renamed.")
+        .says("I have nothing further to propose.")
+        .says("Still nothing.")
+        .build()
+    )
+    outcome = run(repo, provider, verifier_returning(report(Verdict.REGRESSED, regressed=True)))
+    assert len(outcome.attempts) == 2
+    assert outcome.attempts[1].patch.is_empty
+    assert outcome.best is outcome.attempts[0]
+    assert "max_completion_tokens=100" in outcome.patch.unified_diff()
+    assert outcome.verdict is Verdict.REGRESSED
