@@ -291,8 +291,12 @@ def _grade(
         return None, "case ships no hidden test, so its patch is ungraded"
 
     run_checks = verifier or verify
+    # Grading asks one question: does a contract test the agent could not edit
+    # pass? Rewire's own test-weakening signal is deliberately switched off
+    # here. Folding it into the ground truth would have the benchmark grade
+    # itself with the very thing it exists to evaluate.
     report: VerificationReport = run_checks(
-        case.repository, patch, request=verification, overlay=hidden
+        case.repository, patch, request=verification, overlay=hidden, check_weakening=False
     )
     if report.verdict is Verdict.VERIFIED:
         return True, "the hidden contract test passed"

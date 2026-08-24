@@ -31,6 +31,35 @@ Legend: **done** · *in progress* · planned
 Milestones: **0–3** core intelligence · **4–7** working agent · **8–10** measured
 agent · **11–18** production product.
 
+## Acting on the measurement: refusing to vouch for a weakened patch
+
+Not a numbered phase. Phases 8 to 10 measured one failure from three directions,
+and this is the work that followed from it rather than from the roadmap order.
+
+**Delivers.** A `WEAKENED` verdict beside `VERIFIED`, refused by `--apply` and fed
+back to the repair loop with its own advice (ADR-043). Two deterministic checks
+decide it: reductions in what the tests assert, counted rather than read
+(ADR-044), and changes to the repository's own public interface (ADR-045).
+
+**Measured.** Repair arm 6/10 with 3 overclaims before, 7/10 with 1 overclaim
+after; no correct patch was lost to a false positive in any run. The stronger
+evidence is a deterministic replay of both checks over every case's final patch
+from the previous run: five correct patches, zero false positives, and the cheat
+caught. Wall clock 1084s, $0.43.
+
+**Does not deliver.** Two observed cheat classes are still undetected and named
+in ADR-046: rewriting a test's input data, which is structurally identical to a
+correct migration, and inventing a value absent from both specifications, which
+needs `ChangeReport` to record *which* enum values changed rather than only that
+some did.
+
+**Debt.** One run per configuration against a non-deterministic agent, so the
+3 → 1 drop is not cleanly attributable to the checks. The published model
+comparison and ablation predate these checks and have not been re-run under them.
+A migration that legitimately must delete a test or change a public signature is
+now refused, which is the correct default for an automated writer and still a
+real restriction.
+
 ## What Phase 10 delivers
 
 - `rewire eval ablate` — the same ten cases against the same model with the same

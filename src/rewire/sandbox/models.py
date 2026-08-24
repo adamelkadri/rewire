@@ -19,6 +19,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from rewire.analyzers.weakening import Weakening, withholds_verdict
+
 #: Longest command output retained per check. Output is truncated in the middle
 #: so that both the command's first complaint and its final summary survive.
 MAX_OUTPUT_CHARS = 16_000
@@ -79,6 +81,11 @@ class Verdict(StrEnum):
     VERIFIED = "verified"
     #: A check that passed before the patch does not pass after it.
     REGRESSED = "regressed"
+    #: The suite passes, and it passes partly because the patch removed checks
+    #: from it. Distinct from VERIFIED because the evidence is different: a suite
+    #: that passes untouched establishes something a suite that passes after
+    #: losing three assertions does not.
+    WEAKENED = "weakened"
     #: Nothing regressed, but nothing established that the patch is correct.
     INCONCLUSIVE = "inconclusive"
     #: The patch could not be applied, or the sandbox failed to run it.
@@ -169,6 +176,15 @@ class VerificationReport(BaseModel):
     image: str = ""
     files_changed: tuple[str, ...] = ()
     duration_seconds: float = 0.0
+    #: Reductions the patch made to the repository's own tests. Present whatever
+    #: the verdict, because a reviewer wants to see them on a patch that passed
+    #: as much as on one that did not.
+    weakenings: tuple[Weakening, ...] = ()
+
+    @property
+    def weakened(self) -> bool:
+        """Whether the patch removed checks the suite previously made."""
+        return withholds_verdict(self.weakenings)
 
     @property
     def verified(self) -> bool:

@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
+from rewire.agents.patch import FileEdit, PatchBuilder
 from rewire.cli import app
 from rewire.sandbox.models import VerificationRequest
 from rewire.sandbox.scripted import ScriptedRunner
@@ -362,3 +363,43 @@ def test_a_single_attempt_disables_repair(case: Path, monkeypatch: pytest.Monkey
     )
     assert result.exit_code == 1
     assert "1 attempt(s)" in _unwrapped(result.stdout)
+
+
+def test_verify_prints_the_checks_a_patch_removed(
+    case: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reviewer has to see this, not only the verdict word."""
+    repo = case / "repo"
+    (repo / "tests" / "test_app.py").write_text(
+        "def test_x():\n    assert 1 == 1\n    assert 2 == 2\n", encoding="utf-8"
+    )
+    use_sandbox(monkeypatch, ScriptedRunner())
+
+    builder = PatchBuilder(read_file=lambda path: (repo / path).read_text(encoding="utf-8"))
+    builder.add(FileEdit(file="tests/test_app.py", old_text="    assert 2 == 2\n", new_text=""))
+
+    report = real_verify(
+        repo,
+        builder.build("weakened"),
+        runner_factory=lambda _root, _request: ScriptedRunner(),
+    )
+    rendered = _render(report)
+    assert "removed from the repository's tests" in rendered
+    assert "fewer assertions" in rendered
+    assert "A test is evidence" in rendered
+
+
+def _render(report: object) -> str:
+    """Render a verification report through the CLI's own printer."""
+    from rich.console import Console
+
+    import rewire.cli as cli_module
+
+    recorder = Console(record=True, width=200)
+    original = cli_module.console
+    cli_module.console = recorder
+    try:
+        cli_module._render_verification(report)  # type: ignore[arg-type]
+    finally:
+        cli_module.console = original
+    return " ".join(recorder.export_text().split())

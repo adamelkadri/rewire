@@ -21,6 +21,12 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from rewire.agents.patch import CandidatePatch, assert_patch_applies_to, write_patch
+from rewire.analyzers.weakening import (
+    Weakening,
+    find_weakening,
+    summarise_weakening,
+    withholds_verdict,
+)
 from rewire.core.errors import PatchError, SandboxError
 from rewire.core.logging import get_logger
 from rewire.sandbox.models import (
@@ -131,9 +137,23 @@ def _install(
 
 
 def decide(
-    baseline: list[CheckResult], patched: list[CheckResult], *, install: CheckResult | None
+    baseline: list[CheckResult],
+    patched: list[CheckResult],
+    *,
+    install: CheckResult | None,
+    weakenings: tuple[Weakening, ...] = (),
 ) -> tuple[Verdict, str, tuple[CheckKind, ...], tuple[CheckKind, ...]]:
     """Compare the two runs and reach a verdict.
+
+    Args:
+        baseline: Checks run before the patch.
+        patched: The same checks run after it.
+        install: The dependency install, if one ran.
+        weakenings: Reductions the patch made to the repository's own tests. A
+            suite that passes because the patch removed assertions from it has
+            not established what a suite that passes untouched establishes, so
+            this can turn a pass into :attr:`~Verdict.WEAKENED`. It can never
+            turn a failure into a pass.
 
     Returns the verdict, its justification, the regressions, and the failures
     that predate the patch.
@@ -161,6 +181,14 @@ def decide(
 
     tests = after.get(CheckKind.TESTS)
     if tests is not None and tests.passed:
+        if withholds_verdict(weakenings):
+            return (
+                Verdict.WEAKENED,
+                "the test suite passed, but the patch removed checks from it: "
+                f"{summarise_weakening(weakenings)}",
+                (),
+                pre_existing,
+            )
         return (
             Verdict.VERIFIED,
             "the test suite passed after the patch and no check regressed",
@@ -237,6 +265,7 @@ def verify(
     request: VerificationRequest | None = None,
     runner_factory: RunnerFactory | None = None,
     overlay: Mapping[str, str] | None = None,
+    check_weakening: bool = True,
 ) -> VerificationReport:
     """Measure a repository, apply a patch, measure it again, and compare.
 
@@ -252,6 +281,12 @@ def verify(
         overlay: Extra files written into the staged copy after the patch and
             after the baseline run. Used by the benchmark to grade a patch with
             tests the agent could not read, and therefore could not edit.
+        check_weakening: Whether a patch that removes checks from the
+            repository's own tests may be refused a verified verdict. The
+            benchmark's grading pass sets this false: grading asks only whether
+            a contract test the agent could not edit passes, and folding
+            Rewire's own signal into its ground truth would make the benchmark
+            grade itself with the thing it is measuring.
 
     Raises:
         SandboxError: Staging failed, or the sandbox could not run.
@@ -328,7 +363,10 @@ def verify(
                 # plan is recomputed rather than reused.
                 plan = plan_checks(staged.root)
             patched = _run_checks(runner, plan, settings.check_timeout_seconds)
-            verdict, reason, regressions, pre_existing = decide(baseline, patched, install=install)
+            weakenings = find_weakening(patch.changes) if check_weakening else ()
+            verdict, reason, regressions, pre_existing = decide(
+                baseline, patched, install=install, weakenings=weakenings
+            )
             return _report(
                 verdict,
                 reason,
@@ -341,6 +379,7 @@ def verify(
                 started=started,
                 regressions=regressions,
                 pre_existing=pre_existing,
+                weakenings=weakenings,
             )
         finally:
             if isinstance(runner, DockerRunner):
@@ -360,11 +399,13 @@ def _report(
     started: float,
     regressions: tuple[CheckKind, ...] = (),
     pre_existing: tuple[CheckKind, ...] = (),
+    weakenings: tuple[Weakening, ...] = (),
 ) -> VerificationReport:
     """Assemble a report, folding in the checks that were never run."""
     return VerificationReport(
         verdict=verdict,
         reason=reason,
+        weakenings=weakenings,
         baseline=(*baseline, *plan.skipped),
         patched=(*patched, *plan.skipped) if patched else (),
         regressions=regressions,

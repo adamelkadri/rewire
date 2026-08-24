@@ -64,7 +64,7 @@ VerifyCallable = Callable[..., VerificationReport]
 #: Verdicts that describe a mistake in the patch, and are therefore worth
 #: another attempt. Everything else means the sandbox learned nothing, which a
 #: retry cannot change.
-REPAIRABLE: frozenset[Verdict] = frozenset({Verdict.REGRESSED, Verdict.ERRORED})
+REPAIRABLE: frozenset[Verdict] = frozenset({Verdict.REGRESSED, Verdict.ERRORED, Verdict.WEAKENED})
 
 
 @dataclass(frozen=True, slots=True)
@@ -325,6 +325,7 @@ def migrate_with_repair(
             regressions=[kind.value for kind in report.regressions],
             failures=_failures_for(report),
             diff=result.patch.unified_diff(),
+            weakenings=[w.describe() for w in report.weakenings if w.withholds_verdict],
         )
 
     return finish(stopped or "no attempts were made")

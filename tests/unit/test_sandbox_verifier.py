@@ -449,3 +449,80 @@ def test_an_overlay_adds_a_test_suite_to_a_repository_that_had_none(
         overlay={"tests/test_contract.py": TEST},
     )
     assert any(check.kind is CheckKind.TESTS for check in report.patched)
+
+
+# --------------------------------------------------------------- weakening ---
+
+WEAKENED_TEST = "from app import payload\n\n\ndef test_field():\n    pass\n"
+
+
+def weakened_patch(repo: Path) -> CandidatePatch:
+    """A patch that migrates nothing and deletes the assertion instead."""
+    builder = PatchBuilder(read_file=lambda path: (repo / path).read_text(encoding="utf-8"))
+    builder.add(
+        FileEdit(
+            file="tests/test_app.py",
+            old_text='assert "max_tokens" in payload()',
+            new_text="pass",
+        )
+    )
+    return builder.build("removed the assertion")
+
+
+def test_a_passing_suite_the_patch_weakened_is_not_verified(
+    repo: Path, runner: ScriptedRunner, factory
+) -> None:
+    """The measured cheat, refused. This is the whole point of the check."""
+    report = verify(repo, weakened_patch(repo), runner_factory=factory)
+    assert report.verdict is Verdict.WEAKENED
+    assert not report.verified
+    assert report.weakened
+    assert "removed checks from it" in report.reason
+    assert "fewer assertions" in report.reason
+
+
+def test_a_weakened_verdict_still_carries_its_evidence(
+    repo: Path, runner: ScriptedRunner, factory
+) -> None:
+    report = verify(repo, weakened_patch(repo), runner_factory=factory)
+    (finding,) = report.weakenings
+    assert finding.test == "test_field"
+    assert finding.withholds_verdict
+
+
+def test_an_honest_migration_is_still_verified(repo: Path, runner: ScriptedRunner, factory) -> None:
+    """A rename touches the assertion and must not be penalised for it."""
+    report = verify(
+        repo,
+        make_patch(repo, "app.py", "max_tokens", "max_completion_tokens"),
+        runner_factory=factory,
+    )
+    assert report.verdict is Verdict.VERIFIED
+    assert report.weakenings == ()
+
+
+def test_the_weakening_check_can_be_switched_off(
+    repo: Path, runner: ScriptedRunner, factory
+) -> None:
+    """The benchmark's grading pass must not grade itself with this signal."""
+    report = verify(repo, weakened_patch(repo), runner_factory=factory, check_weakening=False)
+    assert report.verdict is Verdict.VERIFIED
+    assert report.weakenings == ()
+
+
+def test_weakening_cannot_turn_a_failure_into_a_pass(
+    repo: Path, runner: ScriptedRunner, factory
+) -> None:
+    """It only ever removes confidence; a regression stays a regression."""
+    runner.when("-m pytest", exit_code=1, times=1)
+    runner.when("-m pytest", exit_code=1)
+    report = verify(repo, weakened_patch(repo), runner_factory=factory)
+    assert report.verdict is not Verdict.VERIFIED
+
+
+def test_a_regression_outranks_a_weakening(repo: Path, runner: ScriptedRunner, factory) -> None:
+    """A broken patch is the more urgent fact, and must be the reported one."""
+    runner.when("-m pytest", exit_code=0, times=1)
+    runner.when("-m pytest", exit_code=1)
+    report = verify(repo, weakened_patch(repo), runner_factory=factory)
+    assert report.verdict is Verdict.REGRESSED

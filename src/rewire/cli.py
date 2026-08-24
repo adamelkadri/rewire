@@ -679,6 +679,7 @@ def _render_migration(result: MigrationResult, *, show_diff: bool, verified: boo
 #: How each verdict is coloured, and what it means in one word.
 VERDICT_STYLE: dict[Verdict, str] = {
     Verdict.VERIFIED: "green",
+    Verdict.WEAKENED: "red",
     Verdict.REGRESSED: "red",
     Verdict.INCONCLUSIVE: "yellow",
     Verdict.ERRORED: "red",
@@ -744,6 +745,17 @@ def _render_verification(report: VerificationReport) -> None:
             escape(shown.reason),
         )
     console.print(table)
+
+    if report.weakenings:
+        console.print("\n[bold]Checks this patch removed from the repository's tests[/bold]")
+        for weakening in report.weakenings:
+            marker = "[red]![/red]" if weakening.withholds_verdict else "[yellow]?[/yellow]"
+            console.print(f"  {marker} {escape(weakening.describe())}")
+        console.print(
+            "[dim]A test is evidence. Rewire will not vouch for a patch whose tests were "
+            "weakened to make it pass; entries marked ? are reported but not disqualifying."
+            "[/dim]"
+        )
 
     if report.install is not None and not report.install.passed and report.install.outcome:
         console.print("\n[bold]Dependency installation failed[/bold]")

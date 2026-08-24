@@ -463,3 +463,36 @@ def test_a_candidate_survives_a_final_attempt_that_produced_nothing(repo: Path) 
     assert outcome.best is outcome.attempts[0]
     assert "max_completion_tokens=100" in outcome.patch.unified_diff()
     assert outcome.verdict is Verdict.REGRESSED
+
+
+def test_a_weakened_patch_is_worth_another_attempt() -> None:
+    """The agent can fix this one: restore the checks it deleted."""
+    assert Verdict.WEAKENED in REPAIRABLE
+
+
+def test_the_repair_prompt_names_the_checks_that_were_removed() -> None:
+    prompt = build_repair_prompt(
+        verdict="weakened",
+        reason="the test suite passed, but the patch removed checks from it",
+        regressions=[],
+        failures=[],
+        diff="--- a/tests/test_x.py\n",
+        weakenings=["tests/test_x.py::test_field went from 2 assertion(s) to 0"],
+    )
+    assert "removed checks from the repository's own tests" in prompt
+    assert "test_field went from 2 assertion(s) to 0" in prompt
+    assert "A test is evidence, not an obstacle." in prompt
+    # The missed-call-site advice is for a different failure and would bury this.
+    assert "run search_code on the old name again" not in prompt
+
+
+def test_the_regression_prompt_keeps_the_search_advice() -> None:
+    prompt = build_repair_prompt(
+        verdict="regressed",
+        reason="the patch broke checks that passed before it: tests",
+        regressions=["tests"],
+        failures=[("pytest", "E   KeyError")],
+        diff="--- a/app.py\n",
+    )
+    assert "run search_code on the old name again" in prompt
+    assert "A test is evidence, not an obstacle." not in prompt

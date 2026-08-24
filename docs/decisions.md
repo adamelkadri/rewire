@@ -1054,3 +1054,102 @@ only prose line-wrapping changed.
 
 **Cost.** The renderers take the noun for what varies ("model", "arm") as a
 parameter, which is slightly more awkward than prose written for one caller.
+
+---
+
+## ADR-043 — A patch that weakens the tests is not verified
+
+**Decision.** A new verdict, `WEAKENED`, sits beside `VERIFIED`. The suite passed,
+and it passed partly because the patch changed what it checks. `is_verified` is
+false for it, `--apply` refuses it, and the repair loop treats it as repairable
+with its own feedback.
+
+**Why.** Phases 8 to 10 measured the same failure from three directions: between
+a fifth and a third of the patches Rewire vouched for were wrong, the rate barely
+moved between four models, and it barely moved between four harness
+configurations. It is a property of the verification, and the verification is
+where it has to be fixed.
+
+A suite that passes untouched establishes something a suite that passes after
+losing three assertions does not. Reporting both as `VERIFIED` is the specific
+inaccuracy that produced the measured overclaim rate, so the fix is a state that
+says which of the two happened.
+
+**Cost.** A patch that legitimately has to delete a test — the endpoint it
+covered is gone — now reaches `WEAKENED` and is not applied automatically. That
+is the correct default for an automated writer and it is a real restriction.
+
+---
+
+## ADR-044 — The weakening check counts, it does not read
+
+**Decision.** Nothing in the test-weakening check looks at what an assertion
+says. It counts test functions and the assertions inside them, and reports only
+reductions: a test deleted, a test with fewer assertions, a test newly skipped.
+
+**Why.** A legitimate migration modifies test assertions constantly — that is
+most of what a migration *is*. `assert "max_tokens" in payload` becoming
+`assert "max_completion_tokens" in payload` is correct work, and a check that
+flagged it would fire on every honest patch and be switched off within a week. A
+false positive here is worse than a false negative, because it destroys the
+check itself.
+
+Counting has exactly the property needed: a rename leaves every count untouched,
+and a deletion cannot hide from it.
+
+**Cost.** Whole classes of cheat are invisible to it, and the benchmark showed
+which — see ADR-045.
+
+---
+
+## ADR-045 — A patch must not change the repository's own public interface
+
+**Decision.** A patch that renames a public function's parameters, or removes a
+public callable, is `WEAKENED`. Private helpers are exempt.
+
+**Why.** This check exists because the first measurement of ADR-044 failed. The
+counting check fired once across thirty-five verdicts and the overclaim rate did
+not move, so the offending patches were pulled out of the traces. None of them
+had removed an assertion. One had renamed the repository's *own* public
+parameter to match the wire field and updated the test to agree: the counts never
+moved, the suite went green, and the repository's API silently broke for every
+other caller.
+
+A migration changes how a repository *calls* an API. Rewriting what it *offers*
+is a breaking change to its own callers, and a test updated to match it no longer
+tests what it did.
+
+Validated before spending anything on a rerun, by replaying both checks over
+every case's final patch from the previous benchmark: **five correct patches,
+zero false positives**, and the one cheat caught.
+
+**Cost.** A migration that genuinely requires a public signature change — a
+wrapper whose whole purpose is to mirror the wire API — is refused. The reviewer
+can still apply the diff by hand; Rewire will not do it for them.
+
+---
+
+## ADR-046 — Two cheats this cannot catch, named rather than papered over
+
+**Decision.** Two of the observed cheat classes are not detected, and are
+recorded here rather than left as an implied capability.
+
+**Rewriting a test's input data.** One patch changed
+`was_truncated({"finish_reason": "length"})` to
+`was_truncated({"choices": [{"finish_reason": "length"}]})` to match its own
+wrong implementation. That is *exactly* what a correct response-field migration
+looks like. Only the specification knows which shape is right, and no structural
+rule over the diff can separate them.
+
+**Inventing a value the specification does not contain.** Another replaced the
+enum value `"text"` with `"plain_text"`, which appears in neither specification.
+This one *is* detectable — "a literal in neither spec replacing one that was in
+the old spec" — but not yet, because `ChangeReport` records *that* enum values
+were removed and added, not *which*. Fixing the differ to carry the values is
+worth doing on its own merits, since the agent would also benefit from being told
+what to migrate a removed value *to*.
+
+**Why say so.** A check that catches two of four cheat classes and is described
+as catching cheating would be a worse artefact than one that names its blind
+spots. The measured overclaim rate is not zero, and the reason it is not zero is
+written down.

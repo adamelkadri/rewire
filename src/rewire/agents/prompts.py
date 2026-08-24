@@ -35,7 +35,7 @@ from rewire.impact.models import ImpactReport
 #: Version of the system prompt, recorded in every trace. Phase 9 compares
 #: models and Phase 10 compares agent configurations; neither comparison means
 #: anything if the prompt changed silently between runs.
-PROMPT_VERSION: Final[str] = "2026-08-23.3"
+PROMPT_VERSION: Final[str] = "2026-08-24.1"
 
 #: Delimiter marking untrusted repository content in a tool result.
 UNTRUSTED_OPEN: Final[str] = "<<<REPOSITORY_CONTENT untrusted=true>>>"
@@ -204,6 +204,7 @@ def build_repair_prompt(
     regressions: Sequence[str],
     failures: Sequence[tuple[str, str]],
     diff: str,
+    weakenings: Sequence[str] = (),
 ) -> str:
     """Render the sandbox's verdict as the follow-up message for a retry.
 
@@ -231,6 +232,10 @@ def build_repair_prompt(
         regressions: Checks that passed before the patch and fail after it.
         failures: ``(tool name, output)`` for each regressed check.
         diff: The unified diff that produced this result.
+        weakenings: Checks the patch removed from the repository's own tests.
+            When present these replace the closing advice, because the fix for
+            "you deleted the assertion" is not the fix for "you missed a call
+            site", and giving both would bury the one that applies.
     """
     lines = [
         "Your previous patch was applied and the repository's own checks were run in a",
@@ -242,6 +247,11 @@ def build_repair_prompt(
         lines.append(
             f"These checks passed before your patch and fail after it: {', '.join(regressions)}."
         )
+        lines.append("")
+
+    if weakenings:
+        lines.append("Your patch removed checks from the repository's own tests:")
+        lines.extend(f"- {item}" for item in weakenings)
         lines.append("")
 
     for name, output in failures:
@@ -259,14 +269,36 @@ def build_repair_prompt(
             "that is still needed, not only the fix. Read the files again before editing:",
             "the repository is in its original state, not the patched state above.",
             "",
-            "Before you edit anything, run search_code on the old name again and open",
-            "every file it reports with read_file, including ones the impact analysis did",
-            "not list. A failure like this usually means an occurrence was left behind in",
-            "a file you did not read -- and you cannot stage an edit in a file whose exact",
-            "text you have not seen.",
         ]
     )
+    lines.extend(_WEAKENING_ADVICE if weakenings else _SEARCH_ADVICE)
     return "\n".join(lines)
+
+
+#: Closing advice when the sandbox found a missed call site. The failure is
+#: almost always an occurrence in a file the agent never opened.
+_SEARCH_ADVICE: Final[tuple[str, ...]] = (
+    "Before you edit anything, run search_code on the old name again and open",
+    "every file it reports with read_file, including ones the impact analysis did",
+    "not list. A failure like this usually means an occurrence was left behind in",
+    "a file you did not read -- and you cannot stage an edit in a file whose exact",
+    "text you have not seen.",
+)
+
+#: Closing advice when the patch passed by removing checks. Different failure,
+#: different fix: the tests are the evidence, and a patch that deletes them has
+#: destroyed the only thing that could have shown it works.
+_WEAKENING_ADVICE: Final[tuple[str, ...]] = (
+    "A test is evidence, not an obstacle. Deleting an assertion, deleting a test,",
+    "or marking one skip does not migrate anything -- it removes the only thing",
+    "that could have shown your patch works, and Rewire will not vouch for a patch",
+    "whose tests were weakened to make it pass.",
+    "",
+    "Update the tests to call the new API, keeping every check they made. If a test",
+    "genuinely cannot survive the migration -- the behaviour it checked no longer",
+    "exists -- leave it failing and say so in your summary. An honest failure is",
+    "more useful than a passing suite that checks less than it did.",
+)
 
 
 def build_review_nudge(edited_files: list[str]) -> str:

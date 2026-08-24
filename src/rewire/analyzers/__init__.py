@@ -44,6 +44,16 @@ from rewire.analyzers.search import (
     TextMatch,
     get_backend,
 )
+from rewire.analyzers.weakening import (
+    Signature,
+    Weakening,
+    WeakeningKind,
+    compare_public_api,
+    compare_tests,
+    find_weakening,
+    summarise_weakening,
+    withholds_verdict,
+)
 
 __all__ = [
     "BindingTable",
@@ -62,18 +72,26 @@ __all__ = [
     "RepositoryIndex",
     "RipgrepBackend",
     "SearchBackend",
+    "Signature",
     "Symbol",
     "SymbolKind",
     "TextMatch",
+    "Weakening",
+    "WeakeningKind",
     "analyse_source",
     "attribute_chain",
     "build_index",
     "collect_dependencies",
+    "compare_public_api",
+    "compare_tests",
     "detect_entry_points",
     "discover_python_files",
+    "find_weakening",
     "get_backend",
     "is_test_path",
     "module_path_for",
     "resolve_repository_root",
     "source_line",
+    "summarise_weakening",
+    "withholds_verdict",
 ]

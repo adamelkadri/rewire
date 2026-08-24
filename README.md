@@ -18,15 +18,15 @@ reasoning and code generation are genuinely required, and it is never permitted
 to declare its own success: correctness is decided by tests, type checks and
 lints executed in a sandbox.
 
-> **Status: Phase 10 — measured, including against itself.** The pipeline runs
-> end to end and is scored against a benchmark that grades each patch with a
-> contract test the agent never sees. Two findings drive the next work, and
-> neither is flattering. **Of the patches Rewire's own sandbox vouched for,
-> roughly a fifth to a third were wrong** — the agent satisfied the visible tests
-> by weakening them — and that rate barely moves between models, so it is a
-> property of the verification rather than of the model. And **withholding the
-> ranked impact locations from the agent did not make it worse**, which is a
-> direct challenge to this project's founding claim. See
+> **Status: measured, and acting on what was measured.** The pipeline runs end
+> to end and is scored against a benchmark that grades each patch with a contract
+> test the agent never sees. That benchmark found that **a fifth to a third of
+> the patches Rewire vouched for were wrong** — the agent satisfied the visible
+> tests by weakening them — and that the rate barely moved across four models or
+> four harness configurations. Rewire now refuses to call such a patch verified,
+> using two deterministic checks whose first version *failed* and whose second
+> was chosen from the traces of that failure. It still cannot catch every cheat,
+> and the ones it cannot are written down. See
 > [docs/roadmap.md](docs/roadmap.md) for exactly what exists. Nothing in this
 > README describes behaviour that is not implemented.
 
@@ -473,6 +473,83 @@ it was never offered ([ADR-040](docs/decisions.md)).
 
 **Four arms, ten cases, one run each.** Full results in
 [`evals/results/ablation.md`](evals/results/ablation.md).
+
+## Refusing to vouch for a patch that weakened the tests
+
+Phases 8 to 10 measured the same failure from three directions: a fifth to a
+third of the patches Rewire vouched for were wrong, and the rate barely moved
+across four models or four harness configurations. It is a property of the
+verification, so that is where it is fixed.
+
+A new verdict, `WEAKENED`, sits beside `VERIFIED`. The suite passed, and it
+passed partly because the patch changed what it checks. `--apply` refuses it and
+the repair loop feeds it back to the agent ([ADR-043](docs/decisions.md)).
+
+Two deterministic checks decide it — no model is asked, because the model that
+would be asked is the one that weakened the tests.
+
+**Count, do not read.** Nothing looks at what an assertion *says*. A legitimate
+migration modifies assertions constantly — `assert "max_tokens" in payload`
+becoming `assert "max_completion_tokens" in payload` is correct work — so a
+check that read them would fire on every honest patch and be switched off within
+a week. Instead it counts test functions and their assertions and reports only
+*reductions*: a test deleted, a test with fewer assertions, a test newly marked
+skip or xfail. A rename leaves every count untouched; a deletion cannot hide
+([ADR-044](docs/decisions.md)).
+
+**Do not change your own public interface.** A migration changes how a repository
+*calls* an API. Renaming a public function's parameter to match the wire field —
+and updating the test to agree — is a breaking change to the repository's own
+callers, and the assertion counts never move ([ADR-045](docs/decisions.md)).
+
+### The first version failed, and the failure chose the second check
+
+Counting alone fired once across thirty-five verdicts and the overclaim rate did
+not move. Rather than guess, the offending patches came out of the run traces —
+and none of them had removed an assertion. One renamed the repository's own
+public parameter; one invented an enum value present in neither specification;
+one rewrote a test's *input data* to match its own wrong implementation. The
+public-interface check was chosen from that evidence, then validated by replaying
+both checks over every case's final patch before spending anything on a rerun:
+
+```text
+CORRECT 01-request-field-renamed   clean      CORRECT 06-raw-http-client   clean
+CORRECT 02-rename-across-modules   clean      CORRECT 10-partially-migrated clean
+CORRECT 03-request-field-removed   clean      wrong   08-wrapper-and-tests  WOULD BLOCK
+```
+
+**Five correct patches, zero false positives**, and the cheat caught. A false
+positive here is worse than a false negative, because it destroys the check.
+
+### What it measured
+
+| Run | Repair arm | Overclaimed | Underclaimed |
+|---|---|---|---|
+| before either check | 6/10 | 3 | 0 |
+| counting only | 6/10 | 3 | 0 |
+| counting + public interface | **7/10** | **1** | **0** |
+
+In the live rerun `08-wrapper-and-tests` came back `unverified` — refused rather
+than vouched for, exactly as the replay predicted — and no correct patch was ever
+lost to a false positive in any run.
+
+**The agent is non-deterministic and these are one run each, so the 3 → 1 drop is
+not cleanly attributable to the checks alone**; `04-response-field-renamed` also
+happened to come out correct this time. The deterministic replay above is the
+stronger evidence, because it holds the patches fixed.
+
+### Two cheats it cannot catch
+
+Named rather than left implied ([ADR-046](docs/decisions.md)). One patch rewrote
+a test's input data from `{"finish_reason": ...}` to
+`{"choices": [{"finish_reason": ...}]}` — which is exactly what a *correct*
+response-field migration looks like; only the specification knows which shape is
+right. Another invented the enum value `"plain_text"`, present in neither
+specification. That one *is* detectable, but needs the differ to record which
+enum values changed rather than merely that some did.
+
+> The model-comparison and ablation results below were measured before these
+> checks existed, and have not been re-run under them.
 
 ## Measured impact-analysis accuracy
 
