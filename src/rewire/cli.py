@@ -86,9 +86,14 @@ from rewire.services import (
     MigrationOutcome,
     MigrationRequest,
     MigrationStatus,
+    PublishOutcome,
+    PublishRequest,
+    PublishStatus,
     RepairOutcome,
     RepairPolicy,
+    check_publishable,
     migrate_with_repair,
+    publish,
     run_migration,
 )
 
@@ -1379,18 +1384,47 @@ def migrate(
     write_patch_to: Annotated[
         Path | None, typer.Option("--write-diff", help="Write the unified diff to a file.")
     ] = None,
+    pull_request: Annotated[
+        bool,
+        typer.Option("--pull-request", help="Open a pull request for the verified patch."),
+    ] = False,
+    draft: Annotated[
+        bool, typer.Option("--draft", help="Open the pull request as a draft.")
+    ] = False,
+    base: Annotated[
+        str, typer.Option("--base", help="Branch to propose into. Defaults to the repo's own.")
+    ] = "",
+    branch_prefix: Annotated[
+        str, typer.Option("--branch-prefix", help="Leading segment of the created branch name.")
+    ] = "rewire",
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="With --pull-request: branch and commit, but never push."),
+    ] = False,
 ) -> None:
-    """Detect, locate, patch, verify, repair — and optionally apply.
+    """Detect, locate, patch, verify, repair — and optionally apply or propose.
 
     The whole pipeline in one command. Without --apply nothing is written and
     this is a report; with --apply a *verified* patch is written to the working
     tree, and only ever there.
 
-    Rewire will not write a patch the sandbox did not confirm, and will not
-    write into a working tree with uncommitted changes — into a clean checkout,
-    `git diff` shows exactly what it did and `git checkout` undoes it.
+    With --pull-request the verified patch goes onto a new branch and becomes a
+    pull request instead. Rewire cannot merge it: there is no merge, approve or
+    auto-merge capability anywhere in the tool, so the change waits for a person.
+
+    Rewire will not write or publish a patch the sandbox did not confirm, and
+    will not write into a working tree with uncommitted changes — into a clean
+    checkout, `git diff` shows exactly what it did and `git checkout` undoes it.
     """
     settings = get_settings()
+
+    # Every reason publishing could fail is knowable in milliseconds. Finding
+    # out after an agent run and two container runs would cost real money to
+    # learn something that was free.
+    if pull_request and (refusal := check_publishable(repo)):
+        error_console.print(f"[red]cannot open a pull request[/red]: {escape(refusal)}")
+        raise typer.Exit(code=EXIT_FAILURE)
+
     outcome = run_migration(
         MigrationRequest(
             repository=repo,
@@ -1407,8 +1441,55 @@ def migrate(
     _write_diff(outcome.patch, write_patch_to)
     _render_outcome(outcome, show_diff=show_diff)
 
+    if pull_request:
+        published = publish(
+            outcome,
+            PublishRequest(
+                repository=repo,
+                prefix=branch_prefix,
+                draft=draft,
+                base=base,
+                dry_run=dry_run,
+            ),
+        )
+        _render_publish(published)
+        if not published.status.is_success:
+            raise typer.Exit(code=EXIT_FAILURE)
+
     if not outcome.status.is_success:
         raise typer.Exit(code=EXIT_FAILURE)
+
+
+def _render_publish(outcome: PublishOutcome) -> None:
+    """Print what publishing did, or the reason it refused."""
+    if outcome.status is PublishStatus.REFUSED:
+        console.print(f"\n[red]NOT PUBLISHED[/red]  {escape(outcome.refusal)}")
+        return
+    if outcome.status is PublishStatus.NOTHING_TO_PUBLISH:
+        console.print(f"\n[yellow]NOTHING TO PUBLISH[/yellow]  {escape(outcome.refusal)}")
+        return
+
+    if outcome.commit is not None:
+        console.print(
+            f"\n[green]COMMITTED[/green]  {escape(outcome.commit.sha[:12])} on "
+            f"[bold]{escape(outcome.branch)}[/bold]"
+            f" ({len(outcome.commit.files)} file(s), and nothing else)"
+        )
+
+    if outcome.status is PublishStatus.DRY_RUN:
+        console.print(
+            "[yellow]DRY RUN[/yellow]  nothing was pushed and no pull request was opened."
+        )
+        console.print(f"\n[bold]Pull request title[/bold]\n{escape(outcome.title)}")
+        console.print(f"\n[bold]Pull request body[/bold]\n{escape(outcome.body)}")
+        return
+
+    if outcome.pull_request is not None:
+        console.print(f"[green]PULL REQUEST[/green]  {escape(outcome.pull_request.describe())}")
+    console.print(
+        "[dim]Rewire has no merge, approve or auto-merge capability. This stays open "
+        "until a person acts on it.[/dim]"
+    )
 
 
 def main() -> None:

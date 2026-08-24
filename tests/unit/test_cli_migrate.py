@@ -205,3 +205,110 @@ def test_the_attempt_table_is_shown(case: Path, monkeypatch: pytest.MonkeyPatch)
     use_provider(monkeypatch, editing_provider())
     use_sandbox(monkeypatch, patched_exit=0)
     assert "Attempts" in migrate(case, "--no-diff").stdout
+
+
+# ---------------------------------------------------------- pull requests ---
+
+
+@pytest.fixture
+def publishable(case: Path, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
+    """A repository with a remote, and a GitHub layer that touches no network."""
+    from rewire.gitio import branch as git_branch
+    from rewire.gitio import github
+
+    opened: list[dict[str, object]] = []
+
+    def fake_open(root: Path, **kwargs: object) -> github.PullRequest:
+        opened.append(kwargs)
+        return github.PullRequest(url="https://github.com/o/r/pull/3", number=3)
+
+    git(case / "repo", "remote", "add", "origin", "https://example.invalid/a.git")
+    monkeypatch.setattr(github, "is_authenticated", lambda _root: True)
+    monkeypatch.setattr(
+        github,
+        "describe_repository",
+        lambda _root: github.Repository(owner="o", name="r", default_branch="main"),
+    )
+    monkeypatch.setattr(github, "open_pull_request", fake_open)
+    monkeypatch.setattr(git_branch, "push", lambda *_a, **_k: None)
+    return opened
+
+
+def test_pull_request_opens_one_and_says_it_cannot_merge(
+    case: Path, monkeypatch: pytest.MonkeyPatch, publishable: list[dict[str, object]]
+) -> None:
+    use_provider(monkeypatch, editing_provider())
+    use_sandbox(monkeypatch, patched_exit=0)
+    result = migrate(case, "--no-diff", "--pull-request")
+    assert result.exit_code == 0
+    flat = " ".join(result.stdout.split())
+    assert "PULL REQUEST" in flat
+    assert "#3" in flat
+    assert "no merge, approve or auto-merge capability" in flat
+    assert len(publishable) == 1
+
+
+def test_a_dry_run_prints_the_description_and_pushes_nothing(
+    case: Path, monkeypatch: pytest.MonkeyPatch, publishable: list[dict[str, object]]
+) -> None:
+    use_provider(monkeypatch, editing_provider())
+    use_sandbox(monkeypatch, patched_exit=0)
+    result = migrate(case, "--no-diff", "--pull-request", "--dry-run")
+    assert result.exit_code == 0
+    flat = " ".join(result.stdout.split())
+    assert "DRY RUN" in flat
+    assert "What this does not establish" in flat
+    assert publishable == []
+
+
+def test_a_draft_is_passed_through(
+    case: Path, monkeypatch: pytest.MonkeyPatch, publishable: list[dict[str, object]]
+) -> None:
+    use_provider(monkeypatch, editing_provider())
+    use_sandbox(monkeypatch, patched_exit=0)
+    migrate(case, "--no-diff", "--pull-request", "--draft", "--base", "develop")
+    assert publishable[0]["draft"] is True
+    assert publishable[0]["base"] == "develop"
+
+
+def test_an_unverified_patch_is_not_published(
+    case: Path, monkeypatch: pytest.MonkeyPatch, publishable: list[dict[str, object]]
+) -> None:
+    use_provider(monkeypatch, editing_provider())
+    use_sandbox(monkeypatch, patched_exit=1)
+    result = migrate(case, "--no-diff", "--pull-request", "--max-attempts", "1")
+    assert result.exit_code == 1
+    assert "NOT PUBLISHED" in " ".join(result.stdout.split())
+    assert publishable == []
+
+
+def test_the_precondition_is_checked_before_a_model_is_called(
+    case: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Failing here is free; failing after an agent run and two containers is not."""
+    called: list[object] = []
+
+    def never(_settings: object) -> object:
+        called.append(_settings)
+        raise AssertionError("the provider must not be built")
+
+    monkeypatch.setattr("rewire.cli.build_provider", never)
+    result = migrate(case, "--no-diff", "--pull-request")
+    assert result.exit_code == 1
+    assert "cannot open a pull request" in " ".join(result.output.split())
+    assert called == []
+
+
+def test_a_spec_change_affecting_nothing_publishes_nothing_and_says_so(
+    case: Path, monkeypatch: pytest.MonkeyPatch, publishable: list[dict[str, object]]
+) -> None:
+    """A repository the change does not touch is a success with no pull request."""
+    (case / "repo" / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+    git(case / "repo", "commit", "-aqm", "chore: unrelated code")
+    use_provider(monkeypatch, editing_provider())
+    use_sandbox(monkeypatch, patched_exit=0)
+
+    result = migrate(case, "--no-diff", "--pull-request")
+    flat = " ".join(result.stdout.split())
+    assert "NOTHING TO PUBLISH" in flat
+    assert publishable == []

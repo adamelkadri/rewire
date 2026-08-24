@@ -13,6 +13,15 @@ from rewire.services.migrate import (
     MigrationStatus,
     run_migration,
 )
+from rewire.services.publish import (
+    PublishOutcome,
+    PublishRequest,
+    PublishStatus,
+    build_body,
+    build_title,
+    check_publishable,
+    publish,
+)
 from rewire.services.repair import (
     REPAIRABLE,
     Attempt,
@@ -27,8 +36,15 @@ __all__ = [
     "MigrationOutcome",
     "MigrationRequest",
     "MigrationStatus",
+    "PublishOutcome",
+    "PublishRequest",
+    "PublishStatus",
     "RepairOutcome",
     "RepairPolicy",
+    "build_body",
+    "build_title",
+    "check_publishable",
     "migrate_with_repair",
+    "publish",
     "run_migration",
 ]

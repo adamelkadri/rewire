@@ -1153,3 +1153,89 @@ what to migrate a removed value *to*.
 as catching cheating would be a worse artefact than one that names its blind
 spots. The measured overclaim rate is not zero, and the reason it is not zero is
 written down.
+
+---
+
+## ADR-047 — Rewire has no ability to merge, and that is structural
+
+**Decision.** :mod:`rewire.gitio.github` contains one write: `gh pr create`.
+There is no merge function, no approve, no auto-merge flag, and no review
+submission. The flags that would reach one are not passed and have no parameter
+to arrive through. A test asserts this over the module's string literals, so a
+future flag cannot quietly acquire one.
+
+**Why.** A policy of "do not merge" is a sentence in a docstring that a bug, a
+hurried flag or a prompt injection can step around. A capability that does not
+exist cannot be reached by any of them.
+
+The reasoning is the same one that shapes the sandbox's tool surface. Rewire's
+evidence is that a repository's own checks passed in a container. Phases 8 to 10
+measured how often that differs from the change being right — between a fifth and
+a third of the time — so the reviewer is not a formality, they are the part of
+the system that catches what the tests do not cover.
+
+**Cost.** A team that would rather auto-merge trivial migrations cannot, and
+would have to script `gh pr merge` themselves. That is the correct place for
+that decision: with the person who owns the repository.
+
+---
+
+## ADR-048 — Only the patch's own files are staged
+
+**Decision.** `commit()` takes an explicit file list and runs `git add -- <paths>`.
+`git add -A` and `git commit -a` appear nowhere, asserted by a test over the
+module's string literals alongside `--force`, `reset`, `clean`, `stash` and
+`rebase`.
+
+**Why.** `git add -A` would sweep the user's unrelated edits into Rewire's commit,
+and once they are in a commit on a branch the user did not make, no amount of
+care elsewhere gets them back out cleanly. The file list already exists — it is
+what the patch changed — so there is no reason to ask Git to guess.
+
+The same rule produces the rest of the module's shape: a branch is never reused,
+a push is never forced, and the original branch is restored in a ``finally`` so a
+failure half way through leaves the user where they started.
+
+**Cost.** A migration whose correct result requires deleting a file cannot
+express that, because staging by path does not cover removals. Recorded as debt.
+
+---
+
+## ADR-049 — Commit hooks are bypassed, for correctness rather than convenience
+
+**Decision.** Rewire commits with `--no-verify`.
+
+**Why.** A pre-commit hook may *rewrite files* — every formatter does. Running
+one would silently commit something other than the patch the sandbox verified,
+which breaks the single link between the evidence and the artefact. The
+alternative failure is worse than it looks: the diff a reviewer reads would not
+be the diff that was tested.
+
+A repository's own hooks still run against the pull request in CI, where their
+result is visible to the reviewer instead of silently absorbed into the commit.
+
+**Cost.** Rewire's commit message may not satisfy a repository's commit-message
+convention, and a repository relying on hooks for formatting will see an
+unformatted commit. Both surface in CI on the pull request.
+
+---
+
+## ADR-050 — The pull request describes what its evidence does not establish
+
+**Decision.** Every generated description carries a "What this does not
+establish" section naming the limits of the checks, the specific cheat class the
+weakening detector cannot catch, and the fact that no person has read it. The
+first line says Rewire cannot merge it; the last line says so again.
+
+**Why.** A description that lists only the green checks invites a reviewer to
+skim and approve, which converts an automated proposal into an automated merge
+with extra steps. The measured overclaim rate is the reason this matters: a
+patch can pass every check the repository has and still be wrong, and the
+reviewer is the only part of the system positioned to notice.
+
+Saying so in the pull request is also the only place the caveat reaches the
+person who needs it. A limitation documented in a repository the reviewer will
+never open is not a disclosure.
+
+**Cost.** The description is longer than a summary line, and it argues against
+its own change. That is the intent.

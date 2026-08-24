@@ -60,7 +60,7 @@ src/rewire/
   sandbox/     isolated patch execution and verification             (Phase 5)
   services/    orchestration: the propose-verify-repair loop          (Phase 6)
   evals/       benchmark datasets, runners, metrics                  (Phase 3)
-  gitio/       Git and GitHub integration                            (Phase 11)
+  gitio/       Git reads, Git writes, and pull requests               (Phase 11)
   api/         FastAPI surface                                       (Phase 13)
   models/      persistence models and shared schemas
 tests/         unit, integration and fixtures
@@ -473,6 +473,78 @@ it was never offered ([ADR-040](docs/decisions.md)).
 
 **Four arms, ten cases, one run each.** Full results in
 [`evals/results/ablation.md`](evals/results/ablation.md).
+
+## Open a pull request
+
+```bash
+uv run rewire migrate ./repo --old old-spec.yaml --new new-spec.yaml --pull-request
+```
+
+The verified patch goes onto a new branch and becomes a pull request. Add
+`--dry-run` to do everything except push, `--draft` to open it as a draft, or
+`--base` to target a branch other than the repository's default.
+
+**Rewire cannot merge it.** Not by policy — structurally. `gitio/github.py`
+contains exactly one write, `gh pr create`. There is no merge function, no
+approve, no auto-merge flag, and a test asserts their absence over the module's
+string literals so a future flag cannot quietly acquire one
+([ADR-047](docs/decisions.md)). A policy is a sentence a bug can step around; a
+missing capability is not.
+
+The write-side Git module is shaped by one rule — Rewire must never destroy work
+it did not create ([ADR-048](docs/decisions.md)):
+
+- **only the patch's own paths are staged.** `git add -A` would sweep your
+  unrelated edits into Rewire's commit, and no care elsewhere gets them back out;
+- **a branch is never reused** — an existing name is refused, not appended to;
+- **a push is never forced.** There is no flag that reaches `--force`;
+- **your original branch is restored** in a `finally`, so a failure half way
+  through leaves you where you started and the branch survives.
+
+Every precondition — not a Git repository, dirty tree, no remote, `gh` not
+authenticated — is checked **before the model is called**, because all of those
+answers are free and finding out after an agent run and two container runs is not.
+
+### The description argues against its own change
+
+```markdown
+## What this does not establish
+
+- The checks above are the repository's own. They cover what they cover, and a
+  migration can be wrong in a way no existing test exercises.
+- Rewire compared assertion counts and public signatures to refuse a patch that
+  passes by weakening its tests. That catches deletions and interface changes; it
+  cannot catch a test whose *expected values* were rewritten to match a wrong
+  implementation.
+- Nothing here was reviewed by a person. That is what this pull request is for.
+
+Checks that could not run at all: lint, typecheck.
+```
+
+A description listing only the green checks invites a reviewer to skim and
+approve, which turns an automated proposal into an automated merge with extra
+steps ([ADR-050](docs/decisions.md)). The body also carries the API changes, the
+diff, the agent's own summary, the checks before *and* after, and the cost.
+
+`gh` is used rather than a REST client so there is **no new credential**: it is
+already authenticated and its token never passes through Rewire.
+
+### Demonstrated live, both ways
+
+A verified migration produced a branch with exactly the two patched files, left
+the working tree on `main` with `main` untouched, and cost $0.0237:
+
+```text
+COMMITTED  0236e6d074c5 on rewire/Example-API/0dd75dc5384b (2 file(s), and nothing else)
+```
+
+A second repository produced an unverified patch after three attempts and was
+refused outright — no branch, no commit, nothing written:
+
+```text
+NOT PUBLISHED  the patch is unverified, and Rewire only publishes a patch the
+sandbox verified. There is no override.
+```
 
 ## Refusing to vouch for a patch that weakened the tests
 

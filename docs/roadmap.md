@@ -19,7 +19,7 @@ Legend: **done** · *in progress* · planned
 | 8 | Evaluation framework (datasets, metrics, published results) | **done** |
 | 9 | Model comparison across providers | **done** |
 | 10 | Agent ablations (AST vs text, repair on/off, context strategies) | **done** |
-| 11 | GitHub integration (branch, PR, never auto-merge) | planned |
+| 11 | GitHub integration (branch, PR, never auto-merge) | **done** |
 | 12 | Automatic change monitoring | planned |
 | 13 | HTTP API and background jobs | planned |
 | 14 | Observability | planned |
@@ -30,6 +30,63 @@ Legend: **done** · *in progress* · planned
 
 Milestones: **0–3** core intelligence · **4–7** working agent · **8–10** measured
 agent · **11–18** production product.
+
+## What Phase 11 delivers
+
+- `rewire migrate ./repo --old … --new … --pull-request` — the verified patch
+  goes onto a new branch and becomes a pull request. `--draft`, `--base`,
+  `--branch-prefix` and `--dry-run` shape it.
+- **No ability to merge, structurally** (ADR-047). `gitio/github.py` contains one
+  write, `gh pr create`. There is no merge, approve or auto-merge function for a
+  bug or a future flag to reach, and a test asserts it over the module's string
+  literals.
+- A write-side Git module whose every operation is narrowed so Rewire cannot
+  destroy work it did not create (ADR-048): only the patch's own paths are
+  staged, a branch is never reused, a push is never forced, and the original
+  branch is restored in a `finally`.
+- Publishing preconditions checked **before the model is called** — not a Git
+  repository, dirty tree, no remote, `gh` not authenticated — because every one
+  of those answers is free and finding out afterwards is not.
+- A pull request description written to be argued with (ADR-050): the API changes,
+  the diff, the agent's own summary, the checks before *and* after, the cost, and
+  a section naming what the evidence does not establish.
+- `gh` rather than a REST client, so there is **no new credential**: the user has
+  already authenticated it and its token never passes through Rewire.
+
+**Demonstrated live, twice.** A verified migration produced a branch holding
+exactly the two patched files, left the user on `main` with `main` untouched, and
+generated the description above — 1 attempt, 12 709 tokens, $0.0237. A second
+repository produced an unverified patch after three attempts and was **refused**:
+no branch, no commit, nothing written, `NOT PUBLISHED  … there is no override`.
+
+## What Phase 11 explicitly does not deliver
+
+- No merging, no approving, no auto-merge, and no way to add one without deleting
+  a test that asserts their absence.
+- No file deletions or renames. Staging works by path, so a migration whose
+  correct result removes a file cannot express it.
+- No updating an existing pull request. Every run opens a new branch and a new
+  pull request; re-running after review comments starts again.
+- No `gh` check in `rewire doctor`, so a missing CLI is reported by the publish
+  precheck rather than by the environment report.
+- No token-based path, so `--pull-request` cannot run anywhere `gh` is not
+  installed and authenticated — including most CI runners and the Phase 13 API.
+
+## Known technical debt carried out of Phase 11
+
+- **`gh` is a hard dependency of publishing.** It buys "no new credential", which
+  is the right trade for a developer's machine and the wrong one for a server.
+  Phase 13's HTTP API will need a token path, and adding one reintroduces a
+  secret to store, log-scrub and rotate.
+- A pull request body is capped at 60 000 characters and truncated silently. The
+  cap is far above any real description, and nothing reports when it bites.
+- The dirty-tree rule counts untracked files, which is stricter than necessary —
+  only the patch's own paths are ever staged. It is kept for one definition of
+  "safe to write into" across `--apply` and `--pull-request`.
+- Nothing verifies that the branch pushed is the branch the pull request was
+  opened from; both use the same variable, and a mismatch would be a silent
+  cross-wiring rather than an error.
+- The published model comparison and ablation still predate the weakening checks.
 
 ## Acting on the measurement: refusing to vouch for a weakened patch
 
