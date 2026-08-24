@@ -21,6 +21,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from rewire.agents.config import DEFAULT_AGENT_CONFIG, AgentConfig
 from rewire.agents.patch import CandidatePatch, PatchBuilder
 from rewire.agents.prompts import (
     PROMPT_VERSION,
@@ -97,10 +98,17 @@ class MigrationAgent:
         *,
         budget: AgentBudget | None = None,
         runs_dir: Path | None = None,
+        config: AgentConfig | None = None,
     ) -> None:
         self._provider = provider
         self._budget = budget or AgentBudget()
         self._runs_dir = runs_dir
+        self._config = config or DEFAULT_AGENT_CONFIG
+
+    @property
+    def config(self) -> AgentConfig:
+        """What this agent is given: the knobs an ablation varies."""
+        return self._config
 
     @property
     def runs_dir(self) -> Path | None:
@@ -142,8 +150,14 @@ class MigrationAgent:
 
         builder = PatchBuilder(read_file=workspace.read_full)
         context = ToolContext(
-            workspace=workspace, index=index, changes=changes, impact=impact, patch=builder
+            workspace=workspace,
+            index=index,
+            changes=changes,
+            impact=impact,
+            patch=builder,
+            include_impact_locations=self._config.include_impact_locations,
         )
+        offered = tool_specs(self._config.tools)
 
         state = AgentState.ANALYZE
         usage = Usage()
@@ -166,9 +180,18 @@ class MigrationAgent:
                 prompt_version=PROMPT_VERSION,
                 changes=changes.summary.total,
                 affected_locations=impact.summary.locations,
+                agent_config=self._config.describe(),
             )
 
-            messages: list[Message] = [Message.user(build_task_prompt(changes, impact))]
+            messages: list[Message] = [
+                Message.user(
+                    build_task_prompt(
+                        changes,
+                        impact,
+                        include_locations=self._config.include_impact_locations,
+                    )
+                )
+            ]
             if feedback:
                 messages.append(Message.user(feedback))
                 trace.record(EventType.REPAIR_FEEDBACK, state, feedback_chars=len(feedback))
@@ -191,14 +214,14 @@ class MigrationAgent:
                     state,
                     iteration=iterations,
                     messages=len(messages),
-                    tools=[spec.name for spec in tool_specs()],
+                    tools=[spec.name for spec in offered],
                 )
 
                 try:
                     response = self._provider.complete(
                         system=SYSTEM_PROMPT,
                         messages=messages,
-                        tools=tool_specs(),
+                        tools=offered,
                         max_tokens=self._budget.max_output_tokens,
                     )
                 except LLMError as exc:
@@ -261,7 +284,9 @@ class MigrationAgent:
                         )
                         is_error = True
                     else:
-                        result = invoke(call.name, context, call.arguments)
+                        result = invoke(
+                            call.name, context, call.arguments, allowed=self._config.tools
+                        )
                         result_content, is_error = result.content, result.is_error
 
                     tool_errors += int(is_error)

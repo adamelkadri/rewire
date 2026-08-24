@@ -102,12 +102,27 @@ def wrap_untrusted(content: str) -> str:
     return f"{UNTRUSTED_OPEN}\n{content}\n{UNTRUSTED_CLOSE}"
 
 
-def build_task_prompt(changes: ChangeReport, impact: ImpactReport, *, max_changes: int = 20) -> str:
+def build_task_prompt(
+    changes: ChangeReport,
+    impact: ImpactReport,
+    *,
+    max_changes: int = 20,
+    include_locations: bool = True,
+) -> str:
     """Render the migration task as the opening user message.
 
     Summarises Rewire's own deterministic findings. This is Rewire's text, not
     the repository's, so it is not wrapped as untrusted -- but it deliberately
     contains no file *contents*, only paths, line numbers and field names.
+
+    Args:
+        changes: The detected API changes.
+        impact: Those changes joined to the code they affect.
+        max_changes: Most changes to render before truncating.
+        include_locations: Whether to name the affected code. Set false by the
+            ablation that measures what the deterministic analysis is worth: the
+            agent is told exactly which API fields changed and must find their
+            uses itself.
     """
     lines = [
         "Migrate this repository to the new API version.",
@@ -119,9 +134,23 @@ def build_task_prompt(changes: ChangeReport, impact: ImpactReport, *, max_change
         "",
     ]
 
-    actionable = [impact for impact in impact.impacts if impact.locations][:max_changes]
+    # With locations withheld, the list is not filtered by them either. Showing
+    # only the changes impact analysis found code for would leak its findings
+    # through the choice of what to mention, and the arm would still be getting
+    # the help it is supposed to be doing without.
+    if include_locations:
+        entries = [entry for entry in impact.impacts if entry.locations]
+    else:
+        entries = list(impact.impacts)
+        lines[-2] = "## Detected changes"
+
+    actionable = entries[:max_changes]
     if not actionable:
-        lines.append("No affected code was found for any detected change.")
+        lines.append(
+            "No API changes were detected."
+            if not include_locations
+            else "No affected code was found for any detected change."
+        )
         return "\n".join(lines)
 
     for entry in actionable:
@@ -135,23 +164,30 @@ def build_task_prompt(changes: ChangeReport, impact: ImpactReport, *, max_change
             lines.append(f"- replaced by: {change.replacement}")
         if change.detail:
             lines.append(f"- detail: {change.detail}")
-        lines.append("- affected locations:")
-        for location in entry.locations:
-            lines.append(
-                f"    - {location.file}:{location.line}"
-                f" (confidence {location.confidence:.2f})"
-                f" in {location.symbol or 'module scope'}"
-            )
+        if include_locations:
+            lines.append("- affected locations:")
+            for location in entry.locations:
+                lines.append(
+                    f"    - {location.file}:{location.line}"
+                    f" (confidence {location.confidence:.2f})"
+                    f" in {location.symbol or 'module scope'}"
+                )
         lines.append("")
 
-    skipped = len([i for i in impact.impacts if i.locations]) - len(actionable)
+    skipped = len(entries) - len(actionable)
     if skipped > 0:
         lines.append(f"({skipped} further affected change(s) not shown.)")
 
     breaking = sum(1 for entry in actionable if entry.change.severity is Severity.BREAKING)
-    lines.append(
-        f"Start with the {breaking} breaking change(s). Read each location before editing it."
-    )
+    if include_locations:
+        lines.append(
+            f"Start with the {breaking} breaking change(s). Read each location before editing it."
+        )
+    else:
+        lines.append(
+            f"Start with the {breaking} breaking change(s). You have not been told where the "
+            "affected code is: find every use yourself before editing it."
+        )
     return "\n".join(lines)
 
 

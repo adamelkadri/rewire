@@ -22,9 +22,10 @@ model, is the thing to fix.
 ## Is the difference real?
 
 Each pair is compared on the cases both ran, by an exact paired sign test over the
-cases they disagreed on. Cases both models handled the same way carry no information
-about which is better and are excluded. At this sample size most differences are not
-separable from chance, and the test is here to say so rather than to award a winner.
+cases they disagreed on. Cases both models handled the same way carry no
+information about which is better and are excluded. At this sample size most
+differences are not separable from chance, and the test is here to say so rather
+than to award a winner.
 
 - 2-0 on 2 disagreement(s), p=0.50 - not distinguishable from chance at n=10
 - 1-1 on 2 disagreement(s), p=1.00 - not distinguishable from chance at n=10
@@ -35,8 +36,7 @@ separable from chance, and the test is here to say so rather than to award a win
 
 ## What the models agree on
 
-**3 case(s) no model solved:** `04-response-field-renamed`, `05-enum-value-removed`, `07-required-field-added`. These are Rewire's ceiling rather than the model's — a stronger model did not
-move them, so the improvement to make is in the harness.
+**3 case(s) no model solved:** `04-response-field-renamed`, `05-enum-value-removed`, `07-required-field-added`. These are Rewire's ceiling rather than the model's — a stronger model did not move them, so the improvement to make is in the harness.
 
 **2 case(s) every model solved:** `01-request-field-renamed`, `09-unrelated-change`. They contribute nothing to a comparison between models.
 
@@ -57,7 +57,7 @@ move them, so the improvement to make is in the harness.
 
 ## Not run
 
-These models were requested and did not produce results. They are listed rather than
-dropped, so the comparison cannot read as more complete than it is.
+These models were requested and did not produce results. They are listed rather
+than dropped, so the comparison cannot read as more complete than it is.
 
 - `anthropic:claude-sonnet-5`: no API key for anthropic; set REWIRE_LLM__ANTHROPIC_API_KEY to include it

@@ -34,7 +34,6 @@ import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from itertools import combinations
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
@@ -42,7 +41,19 @@ from pydantic import BaseModel, ConfigDict
 from rewire.core.config import Settings
 from rewire.core.errors import ConfigurationError, EvaluationError
 from rewire.core.logging import get_logger
-from rewire.evals.migration_dataset import Expectation, MigrationCase
+from rewire.evals.comparison import (
+    Contender,
+    render_agreement,
+    render_headline,
+    render_matrix,
+    render_money,
+    render_pairs,
+    render_skipped,
+)
+from rewire.evals.comparison import pairs as paired_comparisons
+from rewire.evals.comparison import solved_by_all as agreed_solved
+from rewire.evals.comparison import unsolved as agreed_unsolved
+from rewire.evals.migration_dataset import MigrationCase
 from rewire.evals.migration_runner import (
     DEFAULT_ARMS,
     ArmConfig,
@@ -50,7 +61,7 @@ from rewire.evals.migration_runner import (
     BenchmarkResult,
     run_benchmark,
 )
-from rewire.evals.statistics import Interval, PairedComparison, compare_paired, wilson_interval
+from rewire.evals.statistics import Interval, PairedComparison
 from rewire.llm.base import LLMProvider
 from rewire.llm.pricing import PRICING_SNAPSHOT_DATE, pricing_for
 from rewire.llm.registry import SUPPORTED_PROVIDERS, build_provider_for, credential_for
@@ -121,64 +132,65 @@ class ModelRun(BaseModel):
     priced: bool = True
 
     @property
+    def contender(self) -> Contender:
+        """This run as a comparison column."""
+        arm = self.result.arms[0] if self.result and self.result.arms else None
+        return Contender(
+            label=self.label,
+            result=arm,
+            note=f"{self.provider} / {self.model}",
+            skipped=self.skipped,
+            priced=self.priced,
+        )
+
+    @property
     def ran(self) -> bool:
         """Whether there are results to compare."""
-        return self.result is not None and bool(self.result.arms)
+        return self.contender.ran
 
     def correctness(self) -> dict[str, bool]:
-        """``case_id -> handled correctly``, over the single compared arm.
-
-        Empty for a skipped model, which drops it out of every paired
-        comparison rather than scoring it zero.
-        """
-        if self.result is None or not self.result.arms:
-            return {}
-        return {outcome.case_id: outcome.succeeded for outcome in self.result.arms[0].outcomes}
+        """``case_id -> handled correctly``, over the single compared arm."""
+        return self.contender.correctness()
 
     @property
     def succeeded(self) -> int:
         """Cases handled correctly."""
-        return self.result.arms[0].succeeded if self.ran and self.result else 0
+        return self.contender.succeeded
 
     @property
     def total(self) -> int:
         """Cases attempted."""
-        return self.result.arms[0].total if self.ran and self.result else 0
+        return self.contender.total
 
     @property
     def claimed(self) -> int:
         """Cases this model's patches were vouched for by Rewire."""
-        return self.result.arms[0].claimed if self.ran and self.result else 0
+        return self.contender.claimed
 
     @property
     def overclaimed(self) -> int:
         """Vouched-for patches the hidden test rejected."""
-        return self.result.arms[0].overclaimed if self.ran and self.result else 0
+        return self.contender.overclaimed
 
     @property
     def tokens(self) -> int:
         """Tokens spent."""
-        return self.result.arms[0].total_tokens if self.ran and self.result else 0
+        return self.contender.tokens
 
     @property
     def cost_usd(self) -> float | None:
         """Cost, or ``None`` when any case's price is unknown."""
-        return self.result.arms[0].total_cost_usd if self.ran and self.result else None
+        return self.contender.cost_usd
 
     @property
     def interval(self) -> Interval:
         """95% Wilson interval on the correct rate."""
-        return wilson_interval(self.succeeded, self.total)
+        return self.contender.interval
 
     @property
     def overclaim_rate(self) -> float | None:
-        """Overclaims as a share of what Rewire vouched for, or ``None`` if it vouched for nothing.
-
-        The denominator is deliberately ``claimed`` rather than ``total``: this
-        answers "when Rewire says a patch works, how often is it wrong", which
-        is the question a user of the tool is actually asking.
-        """
-        return self.overclaimed / self.claimed if self.claimed else None
+        """Overclaims as a share of what Rewire vouched for."""
+        return self.contender.overclaim_rate
 
 
 class ModelComparison(BaseModel):
@@ -205,36 +217,22 @@ class ModelComparison(BaseModel):
         """Runs that did not happen, each carrying its reason."""
         return tuple(run for run in self.runs if not run.ran)
 
+    @property
+    def contenders(self) -> tuple[Contender, ...]:
+        """Every run as a comparison column, skipped ones included."""
+        return tuple(run.contender for run in self.runs)
+
     def pairs(self) -> tuple[PairedComparison, ...]:
         """Every pairwise paired comparison between models that ran."""
-        return tuple(
-            compare_paired(a.label, b.label, a.correctness(), b.correctness())
-            for a, b in combinations(self.compared, 2)
-        )
+        return paired_comparisons(self.contenders)
 
     def unsolved(self) -> tuple[str, ...]:
         """Cases no model handled correctly — the harness's ceiling, not the model's."""
-        runs = self.compared
-        if not runs:
-            return ()
-        shared = set(runs[0].correctness())
-        for run in runs[1:]:
-            shared &= set(run.correctness())
-        return tuple(
-            sorted(case for case in shared if not any(run.correctness()[case] for run in runs))
-        )
+        return agreed_unsolved(self.contenders)
 
     def solved_by_all(self) -> tuple[str, ...]:
         """Cases every model handled correctly, which separate nothing."""
-        runs = self.compared
-        if not runs:
-            return ()
-        shared = set(runs[0].correctness())
-        for run in runs[1:]:
-            shared &= set(run.correctness())
-        return tuple(
-            sorted(case for case in shared if all(run.correctness()[case] for run in runs))
-        )
+        return agreed_solved(self.contenders)
 
 
 @dataclass(slots=True)
@@ -380,38 +378,9 @@ def _write_partial(config: ComparisonConfig, runs: Sequence[ModelRun], started: 
         logger.warning("comparison_partial_not_written", error=str(exc))
 
 
-def render_money(value: float | None) -> str:
-    """Format a cost so a cheap model does not render as a free one.
-
-    Two decimal places is right for dollars and wrong for a run that cost a third
-    of a cent: ``$0.00`` reads as free, which is the opposite of the point when
-    the comparison exists partly to weigh capability against price.
-    """
-    if value is None:
-        return "unknown"
-    return f"${value:.4f}" if 0 < value < 0.01 else f"${value:.2f}"
-
-
-def _cell(run: ModelRun, case_id: str) -> str:
-    """How one model did on one case, in the per-case matrix."""
-    if run.result is None or not run.result.arms:
-        return "-"
-    outcome = next((o for o in run.result.arms[0].outcomes if o.case_id == case_id), None)
-    if outcome is None:
-        return "-"
-    if outcome.succeeded:
-        return "ok"
-    if outcome.overclaimed:
-        return "**overclaim**"
-    if outcome.error:
-        return "error"
-    if outcome.expectation is Expectation.NO_OP:
-        return "**spurious**"
-    return "miss"
-
-
 def render_markdown(comparison: ModelComparison) -> str:
     """Render the comparison as a report that states what it cannot conclude."""
+    columns = comparison.contenders
     lines = [
         "# Model comparison",
         "",
@@ -427,19 +396,8 @@ def render_markdown(comparison: ModelComparison) -> str:
         "that test rejected — the number that says whether verification, rather than the",
         "model, is the thing to fix.",
         "",
-        "| Model | Correct | 95% CI | Verified | Overclaimed | Overclaim rate | Tokens | Cost |",
-        "|---|---|---|---|---|---|---|---|",
+        *render_headline(columns, heading="Model"),
     ]
-    for run in comparison.compared:
-        cost = render_money(run.cost_usd)
-        rate = f"{run.overclaim_rate:.0%}" if run.overclaim_rate is not None else "-"
-        lines.append(
-            f"| `{run.label}` | **{run.succeeded}/{run.total}** | {run.interval.render()} | "
-            f"{run.claimed} | {run.overclaimed} | {rate} | {run.tokens} | {cost} |"
-        )
-
-    if not comparison.compared:
-        lines += ["", "**No model ran.** Nothing here is a measurement."]
 
     unpriced = [run.label for run in comparison.compared if not run.priced]
     if unpriced:
@@ -450,93 +408,18 @@ def render_markdown(comparison: ModelComparison) -> str:
             + ": the model is absent from the pricing snapshot, so no figure is invented for it.",
         ]
 
-    lines += _render_pairs(comparison)
-    lines += _render_agreement(comparison)
-    lines += _render_matrix(comparison)
-    lines += _render_skipped(comparison)
+    lines += render_pairs(columns, subject="model")
+    lines += render_agreement(
+        columns,
+        subject="model",
+        ceiling=(
+            "These are Rewire's ceiling rather than the model's — a stronger model did not "
+            "move them, so the improvement to make is in the harness."
+        ),
+    )
+    lines += render_matrix(columns)
+    lines += render_skipped(columns, subject="model")
     return "\n".join(lines) + "\n"
-
-
-def _render_pairs(comparison: ModelComparison) -> list[str]:
-    pairs = comparison.pairs()
-    if not pairs:
-        return []
-    lines = [
-        "",
-        "## Is the difference real?",
-        "",
-        "Each pair is compared on the cases both ran, by an exact paired sign test over the",
-        "cases they disagreed on. Cases both models handled the same way carry no information",
-        "about which is better and are excluded. At this sample size most differences are not",
-        "separable from chance, and the test is here to say so rather than to award a winner.",
-        "",
-    ]
-    lines += [f"- {pair.verdict()}" for pair in pairs]
-    return lines
-
-
-def _render_agreement(comparison: ModelComparison) -> list[str]:
-    if len(comparison.compared) < 2:
-        return []
-    unsolved = comparison.unsolved()
-    everyone = comparison.solved_by_all()
-    lines = ["", "## What the models agree on", ""]
-    if unsolved:
-        lines += [
-            f"**{len(unsolved)} case(s) no model solved:** "
-            + ", ".join(f"`{case}`" for case in unsolved)
-            + ". These are Rewire's ceiling rather than the model's — a stronger model did not",
-            "move them, so the improvement to make is in the harness.",
-            "",
-        ]
-    else:
-        lines += ["Every case was solved by at least one model.", ""]
-    if everyone:
-        lines += [
-            f"**{len(everyone)} case(s) every model solved:** "
-            + ", ".join(f"`{case}`" for case in everyone)
-            + ". They contribute nothing to a comparison between models.",
-        ]
-    return lines
-
-
-def _render_matrix(comparison: ModelComparison) -> list[str]:
-    runs = comparison.compared
-    if not runs:
-        return []
-    case_ids: list[str] = []
-    for run in runs:
-        for case_id in run.correctness():
-            if case_id not in case_ids:
-                case_ids.append(case_id)
-
-    header = "| Case | " + " | ".join(f"`{run.label}`" for run in runs) + " |"
-    lines = [
-        "",
-        "## Case by case",
-        "",
-        header,
-        "|---|" + "---|" * len(runs),
-    ]
-    for case_id in case_ids:
-        cells = " | ".join(_cell(run, case_id) for run in runs)
-        lines.append(f"| `{case_id}` | {cells} |")
-    return lines
-
-
-def _render_skipped(comparison: ModelComparison) -> list[str]:
-    skipped = comparison.skipped
-    if not skipped:
-        return []
-    return [
-        "",
-        "## Not run",
-        "",
-        "These models were requested and did not produce results. They are listed rather than",
-        "dropped, so the comparison cannot read as more complete than it is.",
-        "",
-        *[f"- `{run.label}`: {run.skipped}" for run in skipped],
-    ]
 
 
 def write_results(comparison: ModelComparison, directory: Path | str) -> tuple[Path, Path]:

@@ -17,6 +17,7 @@ from pydantic import SecretStr
 
 from rewire.core.config import LLMSettings, Settings
 from rewire.core.errors import ConfigurationError, EvaluationError
+from rewire.evals.comparison import cell, render_money
 from rewire.evals.migration_dataset import Expectation, MigrationCase
 from rewire.evals.migration_runner import (
     DEFAULT_ARMS,
@@ -31,10 +32,8 @@ from rewire.evals.model_matrix import (
     ModelRun,
     ModelSpec,
     _build_provider,
-    _cell,
     compare_models,
     render_markdown,
-    render_money,
     write_results,
 )
 from rewire.llm import ScriptBuilder, ScriptedProvider
@@ -542,7 +541,7 @@ def test_no_case_solved_by_everyone_omits_that_line() -> None:
 
 def test_a_cell_for_a_model_that_never_ran_is_blank() -> None:
     skipped = ModelRun(label="anthropic:x", provider="anthropic", model="x", skipped="no key")
-    assert _cell(skipped, "anything") == "-"
+    assert cell(skipped.contender, "anything") == "-"
 
 
 def test_the_real_factory_builds_the_requested_model(settings: Settings) -> None:

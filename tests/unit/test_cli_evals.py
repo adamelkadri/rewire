@@ -20,6 +20,7 @@ from typer.testing import CliRunner
 from rewire import cli
 from rewire.cli import app
 from rewire.core.errors import ConfigurationError
+from rewire.evals.ablation import DEFAULT_ABLATIONS
 from rewire.evals.migration_dataset import Expectation
 from rewire.evals.migration_runner import ArmResult, BenchmarkResult, CaseOutcome
 from rewire.evals.model_matrix import ModelComparison, ModelRun
@@ -338,3 +339,87 @@ def test_eval_help_lists_both_benchmarks() -> None:
     assert result.exit_code == 0
     assert "migrate" in result.stdout
     assert "models" in result.stdout
+
+
+# ------------------------------------------------------------- eval ablate ---
+
+
+@pytest.fixture
+def stub_ablate(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    """Replace the benchmark runner behind `eval ablate`."""
+    seen: list[object] = []
+
+    def fake_run_benchmark(config: object, cases: object, **_kwargs: object) -> BenchmarkResult:
+        seen.append(config)
+        return ablation_benchmark()
+
+    monkeypatch.setattr(cli, "run_benchmark", fake_run_benchmark)
+    monkeypatch.setattr(cli, "build_provider", lambda _settings: object())
+    return seen
+
+
+def ablation_benchmark() -> BenchmarkResult:
+    return BenchmarkResult(
+        arms=(
+            ArmResult(
+                arm="full",
+                description="everything",
+                max_attempts=3,
+                harness="full configuration",
+                outcomes=(outcome("01", correct=True), outcome("02", correct=False)),
+            ),
+            ArmResult(
+                arm="no-impact",
+                description="impact withheld",
+                max_attempts=3,
+                harness="impact locations withheld",
+                outcomes=(outcome("01", correct=True), outcome("02", correct=False)),
+            ),
+        ),
+        provider="openai",
+        model="gpt-4o",
+        dataset=str(DATASET),
+        cases=2,
+    )
+
+
+def test_eval_ablate_reports_what_each_arm_lost(stub_ablate: list[object], tmp_path: Path) -> None:
+    result = runner.invoke(app, ["eval", "ablate", "--no-write", "--results-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert "full configuration" in flat(result.stdout)
+    assert "impact locations withheld" in flat(result.stdout)
+    assert "95% CI" in flat(result.stdout)
+
+
+def test_eval_ablate_names_cases_no_arm_reached(stub_ablate: list[object], tmp_path: Path) -> None:
+    result = runner.invoke(app, ["eval", "ablate", "--no-write", "--results-dir", str(tmp_path)])
+    assert "no arm solved" in flat(result.stdout)
+
+
+def test_eval_ablate_runs_every_arm_by_default(stub_ablate: list[object], tmp_path: Path) -> None:
+    runner.invoke(app, ["eval", "ablate", "--no-write", "--results-dir", str(tmp_path)])
+    assert [a.name for a in stub_ablate[0].arms] == [  # type: ignore[attr-defined]
+        a.name for a in DEFAULT_ABLATIONS
+    ]
+
+
+def test_eval_ablate_can_run_one_arm(stub_ablate: list[object], tmp_path: Path) -> None:
+    runner.invoke(
+        app,
+        ["eval", "ablate", "--no-write", "--results-dir", str(tmp_path), "--arm", "no-search"],
+    )
+    assert [a.name for a in stub_ablate[0].arms] == ["no-search"]  # type: ignore[attr-defined]
+
+
+def test_an_unknown_ablation_arm_is_rejected(stub_ablate: list[object], tmp_path: Path) -> None:
+    result = runner.invoke(
+        app, ["eval", "ablate", "--no-write", "--results-dir", str(tmp_path), "--arm", "nope"]
+    )
+    assert "no matching arm" in str(failure(result))
+
+
+def test_eval_ablate_writes_both_report_formats(stub_ablate: list[object], tmp_path: Path) -> None:
+    result = runner.invoke(app, ["eval", "ablate", "--results-dir", str(tmp_path)])
+    assert result.exit_code == 0
+    assert (tmp_path / "ablation.json").is_file()
+    assert (tmp_path / "ablation.md").is_file()

@@ -18,7 +18,7 @@ Legend: **done** · *in progress* · planned
 | 7 | End-to-end MVP (`rewire migrate`) | **done** |
 | 8 | Evaluation framework (datasets, metrics, published results) | **done** |
 | 9 | Model comparison across providers | **done** |
-| 10 | Agent ablations (AST vs text, repair on/off, context strategies) | planned |
+| 10 | Agent ablations (AST vs text, repair on/off, context strategies) | **done** |
 | 11 | GitHub integration (branch, PR, never auto-merge) | planned |
 | 12 | Automatic change monitoring | planned |
 | 13 | HTTP API and background jobs | planned |
@@ -30,6 +30,80 @@ Legend: **done** · *in progress* · planned
 
 Milestones: **0–3** core intelligence · **4–7** working agent · **8–10** measured
 agent · **11–18** production product.
+
+## What Phase 10 delivers
+
+- `rewire eval ablate` — the same ten cases against the same model with the same
+  repair budget, differing only in what the agent is given. Four arms:
+  - **full** — the shipped configuration, and the control.
+  - **no-impact-locations** — told exactly which API fields changed, not where
+    they are used. Every tool kept, so it can still find the code.
+  - **no-impact** — the same, and the pipeline no longer stops when impact
+    analysis finds nothing, because "it can tell you there is nothing to do" is
+    part of what impact analysis is worth (ADR-041).
+  - **no-search** — the mirror image: given the ranked locations, denied the
+    tools to look beyond them.
+- `AgentConfig` — the agent's information diet as a value, defaulting to the
+  shipped configuration, recorded in every trace so a run can never be filed
+  under the wrong arm.
+- Withholding that actually withholds (ADR-040): the locations are removed from
+  the task prompt *and* from `inspect_api_change`, the change list is no longer
+  filtered by what impact analysis found, and a withheld tool is refused by
+  `invoke` as well as omitted from the offered specifications. A misspelt tool
+  name is rejected rather than silently withholding nothing.
+- `ArmConfig` generalised from "a repair budget" to the whole harness, so the
+  migration benchmark, the model comparison and the ablation all describe an
+  experimental condition the same way.
+- One shared reporting implementation for every comparison in the project
+  (ADR-042), verified by re-rendering Phase 9's saved results through it and
+  getting identical numbers.
+
+**Measured, four arms, ten cases each, one run per arm, gpt-4o throughout:**
+
+| Arm | Correct | 95% CI | Overclaim rate | Repairs | Tokens | Cost |
+|-----|---------|--------|----------------|---------|--------|------|
+| `full` (control) | **6/10** | 31–83% | 29% | 3 | 143k | $0.27 |
+| `no-impact-locations` | **7/10** | 40–89% | 14% | 0 | 98k | $0.19 |
+| `no-impact` | **7/10** | 40–89% | 12% | 0 | 101k | $0.19 |
+| `no-search` | **5/10** | 24–76% | 33% | 4 | 155k | $0.29 |
+
+No pairwise difference is separable; the strongest split is 2–0 on two
+disagreements (p = 0.50). The control's 6/10 matches the same configuration's
+score in Phase 9, on an independent run.
+
+The result that matters is a null one pointing the wrong way. **Withholding the
+ranked impact locations did not hurt**: both arms without them scored one case
+higher, needed no repair attempts against the control's three, and cost a third
+less. `04-response-field-renamed` was solved only by the arms *not* told where to
+look. The honest statement is that this dataset cannot detect a benefit from the
+ranked locations — which is still bad for a claim that they help.
+
+`no-search` is the worst arm and the most expensive, and the only one to miss
+`02-rename-across-modules`, the case that requires looking beyond what the
+analysis ranked. The search tools are carrying the work the findings were
+supposed to.
+
+`no-impact` is the only arm to produce a spurious patch for `09-unrelated-change`.
+Being able to say "nothing here" is worth exactly that case, and is separable from
+the findings, which is why it has its own arm.
+
+Wall clock 1913s, total spend $0.94.
+
+## What Phase 10 explicitly does not deliver
+
+- **Still ten cases.** Four arms on ten cases produce six pairwise comparisons
+  with single-digit disagreement counts. The report will decline to separate most
+  of them, and that is the honest reading rather than a shortcoming of the
+  report.
+- One run per arm. No arm has a variance estimate.
+- One model. The ablation holds gpt-4o fixed, so "impact analysis is worth X" is
+  a statement about this agent with this model.
+- No prompt-strategy ablation. The system prompt, the tool descriptions and the
+  repair prompt are constant across every arm; only the *findings* vary. Rewriting
+  the prompt per arm would vary two things at once.
+- Impact analysis still runs in every arm — the ablation withholds its findings
+  from the agent, and in one arm bypasses its gate. Nothing here measures the cost
+  of running it.
 
 ## What Phase 9 delivers
 
@@ -411,6 +485,29 @@ debt below.
   reads it yet.
 - No Git or GitHub operations, no HTTP API, no dashboard.
 - No evaluation datasets or published metrics.
+
+## Known technical debt carried out of Phase 10
+
+- **Four arms on ten cases.** Every pairwise comparison has single-digit
+  disagreement counts, so the ablation can rule things out far more confidently
+  than it can establish them. A null result here means "this dataset cannot
+  detect a difference", not "there is none".
+- One run per arm, one model. The same non-determinism Phase 8 measured applies,
+  and nothing here repeats an arm to bound it.
+- The ablation withholds impact *findings*; impact analysis still runs in every
+  arm to build the tool context. Nothing measures what it costs to run, only what
+  its output is worth.
+- `no-impact` changes two things relative to `full` — the findings and the gate —
+  by design (ADR-041), which is why `no-impact-locations` exists beside it. Read
+  alone it would be a confounded arm.
+- The prompt is constant across arms, so an arm that would do better with wording
+  written for it is measured on wording written for the control. The same
+  confound Phase 9 carried.
+- Tool *descriptions* still mention the withheld tools' capabilities indirectly
+  through the system prompt's numbered workflow, which tells the agent to use
+  `search_code` and `find_calls`. The `no-search` arm is therefore told to use
+  tools it does not have. That is a small prompt/config inconsistency and it is
+  not corrected, because correcting it would vary the prompt between arms.
 
 ## Known technical debt carried out of Phase 9
 

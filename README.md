@@ -18,14 +18,15 @@ reasoning and code generation are genuinely required, and it is never permitted
 to declare its own success: correctness is decided by tests, type checks and
 lints executed in a sandbox.
 
-> **Status: Phase 9 — measured across models.** The pipeline runs end to end and
-> is scored against a benchmark that grades each patch with a contract test the
-> agent never sees. The headline finding is not the success rate: it is that
-> **of the 25 patches Rewire's own sandbox vouched for across four models, 8
-> were wrong** — the agent satisfied the visible tests by weakening them. That
-> rate barely moves between models (20–40%), so it is a property of the
-> verification rather than of the model, and no pair of models in the comparison
-> is statistically separable at this sample size. See
+> **Status: Phase 10 — measured, including against itself.** The pipeline runs
+> end to end and is scored against a benchmark that grades each patch with a
+> contract test the agent never sees. Two findings drive the next work, and
+> neither is flattering. **Of the patches Rewire's own sandbox vouched for,
+> roughly a fifth to a third were wrong** — the agent satisfied the visible tests
+> by weakening them — and that rate barely moves between models, so it is a
+> property of the verification rather than of the model. And **withholding the
+> ranked impact locations from the agent did not make it worse**, which is a
+> direct challenge to this project's founding claim. See
 > [docs/roadmap.md](docs/roadmap.md) for exactly what exists. Nothing in this
 > README describes behaviour that is not implemented.
 
@@ -412,6 +413,66 @@ the report names the gap rather than closing it by omission
 
 **Four models, ten cases, one run each.** Full results in
 [`evals/results/models.md`](evals/results/models.md).
+
+## What is the deterministic analysis actually worth?
+
+```bash
+uv run rewire eval ablate
+```
+
+Rewire's founding claim is that deterministic analysis before the model makes the
+model better. That claim had never been tested, only asserted. An ablation tests
+it the only way it can be tested: by taking the analysis away and running the
+same benchmark. Same model, same repair budget, same hidden contract tests; the
+only thing that differs between rows is what the agent is given.
+
+| Arm | Correct | 95% CI | Overclaim rate | Repairs needed | Tokens | Cost |
+|---|---|---|---|---|---|---|
+| `full` (control) | **6/10** | 31–83% | 29% | 3 | 143k | $0.27 |
+| `no-impact-locations` | **7/10** | 40–89% | 14% | 0 | 98k | $0.19 |
+| `no-impact` | **7/10** | 40–89% | 12% | 0 | 101k | $0.19 |
+| `no-search` | **5/10** | 24–76% | 33% | 4 | 155k | $0.29 |
+
+`no-impact-locations` is told exactly which API fields changed and *not* where
+they are used, keeping every tool. `no-impact` additionally removes the rule that
+stops a run when impact analysis finds nothing. `no-search` is the mirror image:
+it keeps the ranked locations and loses `search_code`, `find_calls` and
+`find_symbol`.
+
+**Withholding the ranked locations did not hurt.** Both arms that lost them
+scored one case *higher* than the control, needed **no repair attempts at all**
+against the control's three, and cost a third less. No pairwise difference here is
+statistically separable — the strongest is p = 0.50 — so the honest statement is
+that this dataset cannot detect a benefit from the ranked locations. That is still
+a bad result for the claim, because the claim was that they help.
+
+The clearest single case: `04-response-field-renamed` was solved by both arms that
+were **not** told where to look, and missed by both arms that were. No model
+solved it in the Phase 9 comparison either. The pattern across the table — the
+arms given locations needed seven repair attempts between them, the arms without
+needed none — is consistent with the ranked locations *anchoring* the agent: it
+edits where it was pointed and stops looking. That is a hypothesis this dataset
+suggests and cannot confirm.
+
+**The search tools are doing real work.** `no-search` is the worst arm and also
+the most expensive one, burning the most tokens and the most repair attempts to
+score lowest. It is the only arm to miss `02-rename-across-modules`, which is
+precisely the case that requires looking beyond what the analysis ranked.
+
+**The gate is worth exactly one case, and the report shows which.** `no-impact` is
+the only arm that bypasses "stop when impact analysis finds no affected code", and
+the only arm that produced a **spurious patch** for `09-unrelated-change` — a
+repository that needed no migration at all. Being able to say "nothing here" is a
+separable part of what impact analysis contributes, which is why it gets its own
+arm ([ADR-041](docs/decisions.md)).
+
+Making an ablation genuinely ablate took three fixes, each a leak found while
+building it: `inspect_api_change` also returns locations; the task prompt listed
+only the changes impact analysis had found code for; and a model can call a tool
+it was never offered ([ADR-040](docs/decisions.md)).
+
+**Four arms, ten cases, one run each.** Full results in
+[`evals/results/ablation.md`](evals/results/ablation.md).
 
 ## Measured impact-analysis accuracy
 

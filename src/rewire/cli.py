@@ -42,6 +42,12 @@ from rewire.core.doctor import CheckStatus, DoctorReport, run_checks
 from rewire.core.errors import ConfigurationError, RewireError
 from rewire.core.logging import configure_from_settings
 from rewire.evals import render_markdown, run_evaluation, write_results
+from rewire.evals.ablation import DEFAULT_ABLATIONS
+from rewire.evals.ablation import contenders as ablation_contenders
+from rewire.evals.ablation import render_markdown as render_ablation
+from rewire.evals.ablation import write_results as write_ablation
+from rewire.evals.comparison import pairs as comparison_pairs
+from rewire.evals.comparison import unsolved as comparison_unsolved
 from rewire.evals.migration_dataset import load_migration_cases
 from rewire.evals.migration_runner import (
     DEFAULT_ARMS,
@@ -1065,6 +1071,110 @@ def eval_models(
         console.print(f"[dim]wrote {escape(str(json_path))} and {escape(str(markdown_path))}[/dim]")
     else:
         console.print(render_comparison(comparison))
+
+
+def _render_ablation(result: BenchmarkResult) -> None:
+    """Print the arms, what each lost, and whether the gaps mean anything."""
+    table = Table(title="Agent ablations", title_justify="left")
+    table.add_column("Arm")
+    table.add_column("Lost")
+    table.add_column("Correct", justify="right")
+    table.add_column("95% CI", justify="right")
+    table.add_column("Overclaimed", justify="right")
+
+    columns = ablation_contenders(result)
+    for column in columns:
+        over = f"[red]{column.overclaimed}[/red]" if column.overclaimed else "[green]0[/green]"
+        table.add_row(
+            column.label,
+            escape(column.note),
+            f"{column.succeeded}/{column.total}",
+            column.interval.render(),
+            over,
+        )
+    console.print()
+    console.print(table)
+
+    for pair in comparison_pairs(columns):
+        style = "green" if pair.is_significant else "yellow"
+        console.print(f"[{style}]{escape(pair.verdict())}[/{style}]")
+
+    if unreached := comparison_unsolved(columns):
+        console.print(
+            f"[yellow]{len(unreached)} case(s) no arm solved: {escape(', '.join(unreached))}."
+            " No configuration of the harness reached them.[/yellow]"
+        )
+
+
+@eval_app.command("ablate")
+def eval_ablate(
+    dataset: Annotated[
+        Path,
+        typer.Option("--dataset", exists=True, file_okay=False, help="Benchmark dataset root."),
+    ] = Path("evals/datasets/migration"),
+    arm: Annotated[list[str] | None, typer.Option("--arm", help="Run only these arms.")] = None,
+    case: Annotated[
+        list[str] | None, typer.Option("--case", help="Run only these case identifiers.")
+    ] = None,
+    limit: Annotated[
+        int, typer.Option("--limit", min=0, help="Stop after this many cases per arm.")
+    ] = 0,
+    write: Annotated[
+        bool, typer.Option("--write/--no-write", help="Write results under evals/results/.")
+    ] = True,
+    results_dir: Annotated[
+        Path, typer.Option("--results-dir", help="Where to write results.")
+    ] = Path("evals/results"),
+) -> None:
+    """Measure what each part of the harness is worth by taking it away.
+
+    Every arm runs the same cases against the same model with the same repair
+    budget; the only thing that differs is what the agent is given. Two arms
+    withhold the ranked impact locations, one withholds the tools for searching
+    beyond them, and one is the shipped configuration as a control.
+
+    Differences are reported with a confidence interval and an exact paired
+    significance test, which on a ten-case dataset will usually decline to
+    separate the arms.
+
+    This costs real model calls and real container time.
+    """
+    settings = get_settings()
+    provider = build_provider(settings.llm)
+    cases = load_migration_cases(dataset)
+
+    arms = tuple(a for a in DEFAULT_ABLATIONS if not arm or a.name in arm)
+    if not arms:
+        raise ConfigurationError(
+            "no matching arm",
+            requested=list(arm or ()),
+            available=[a.name for a in DEFAULT_ABLATIONS],
+        )
+
+    settings.ensure_data_dirs()
+    with console.status("[bold]running ablations") as status:
+        result = run_benchmark(
+            BenchmarkConfig(
+                dataset=dataset,
+                arms=arms,
+                only=tuple(case or ()),
+                limit=limit,
+                verification=_verification_request(settings, image=None, timeout=None),
+                results_dir=results_dir,
+                incremental=write,
+                progress=lambda message: status.update(f"[bold]{escape(message)}"),
+            ),
+            cases,
+            provider=provider,
+            settings=settings,
+        )
+
+    _render_ablation(result)
+    if write:
+        json_path, markdown_path = write_ablation(result, results_dir)
+        console.print(f"[dim]wrote {escape(str(json_path))} and {escape(str(markdown_path))}[/dim]")
+    else:
+        console.print(render_ablation(result))
 
 
 @app.command()

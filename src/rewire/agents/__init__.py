@@ -5,6 +5,7 @@ patch works — that requires executing it, which is Phase 5 — so nothing here
 reports success, and the terminal state is named accordingly.
 """
 
+from rewire.agents.config import ALL_TOOLS, DEFAULT_AGENT_CONFIG, SEARCH_TOOLS, AgentConfig
 from rewire.agents.migration_agent import AgentBudget, MigrationAgent, MigrationResult
 from rewire.agents.patch import CandidatePatch, FileChange, FileEdit, PatchBuilder, write_patch
 from rewire.agents.prompts import PROMPT_VERSION, SYSTEM_PROMPT, wrap_untrusted
@@ -14,10 +15,14 @@ from rewire.agents.trace import EventType, RunSummary, RunTrace, TraceEvent, loa
 from rewire.agents.workspace import Workspace
 
 __all__ = [
+    "ALL_TOOLS",
+    "DEFAULT_AGENT_CONFIG",
     "PROMPT_VERSION",
+    "SEARCH_TOOLS",
     "SYSTEM_PROMPT",
     "TOOLS",
     "AgentBudget",
+    "AgentConfig",
     "AgentState",
     "CandidatePatch",
     "EventType",

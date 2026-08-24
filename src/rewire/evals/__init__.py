@@ -5,6 +5,8 @@ Rewire makes about its own accuracy is produced here, against labelled data that
 lives in the repository and can be disagreed with.
 """
 
+from rewire.evals.ablation import DEFAULT_ABLATIONS
+from rewire.evals.comparison import Contender
 from rewire.evals.dataset import ExpectedLocation, ImpactCase, TargetChange, load_case, load_cases
 from rewire.evals.impact_runner import (
     CaseResult,
@@ -49,6 +51,7 @@ from rewire.evals.statistics import (
 )
 
 __all__ = [
+    "DEFAULT_ABLATIONS",
     "DEFAULT_ARMS",
     "DEFAULT_COMPARISON_ARM",
     "ArmConfig",
@@ -59,6 +62,7 @@ __all__ = [
     "CaseResult",
     "ComparisonConfig",
     "ConfusionCounts",
+    "Contender",
     "EvaluationConfig",
     "EvaluationResult",
     "Expectation",

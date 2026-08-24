@@ -982,3 +982,75 @@ every model overclaims at a similar rate, the fix is Rewire's verification.
 
 **Cost.** None, beyond a longer report. This is arithmetic over results already
 collected.
+
+---
+
+## ADR-040 — The ablation withholds impact findings through every channel
+
+**Decision.** `include_impact_locations=False` withholds the ranked affected
+locations from **both** the opening task prompt and the `inspect_api_change`
+tool, and stops the prompt from filtering the change list by what impact
+analysis found code for. A withheld tool is refused by `invoke` as well as
+omitted from the offered specifications.
+
+**Why.** An ablation that does not actually remove the thing produces the
+control's number under the ablation's label, and nothing crashes. It is the
+worst failure available to an experiment, because the result looks like a
+finding.
+
+There were three ways for this one to leak, and all three were real:
+
+* `inspect_api_change` returns affected locations. Withholding them from the
+  prompt while leaving that tool intact would have measured nothing.
+* The task prompt listed only the changes impact analysis had found code for.
+  An arm that hears about exactly the changes impact located is still being
+  helped by impact, through the choice of what to mention.
+* A model can emit the name of a tool it was not offered. Filtering the
+  specifications alone would let a lucky guess restore the tool.
+
+`AgentConfig.without()` also rejects a tool name that does not exist, because
+subtracting a misspelt name silently withholds nothing.
+
+**Cost.** Two knobs and a validated name list where one boolean would have
+looked sufficient.
+
+---
+
+## ADR-041 — The impact ablation also removes the gate, in its own arm
+
+**Decision.** Two arms withhold the locations. `no-impact-locations` keeps the
+pipeline's rule that a run stops when impact analysis finds no affected code;
+`no-impact` removes that too, and calls the model regardless.
+
+**Why.** "It can tell you there is nothing to do" is part of what impact
+analysis is worth — it is what makes the no-op case pass, and what will make
+Phase 12's automatic monitoring affordable. An arm that withholds the findings
+but keeps the gate is measuring the prompt, not the analysis.
+
+Running both separates the two contributions instead of conflating them into one
+number. The cost of conflating them would be attributing the gate's value to the
+ranked locations, or the reverse.
+
+**Cost.** A fourth arm, and roughly ten more minutes of benchmark wall clock.
+
+---
+
+## ADR-042 — Model comparison and ablation share one reporting implementation
+
+**Decision.** `evals/comparison.py` holds the rates table, the Wilson intervals,
+the paired significance section, the agreement structure and the per-case matrix,
+over a generic labelled `Contender`. Phase 9's model comparison and Phase 10's
+ablation both build contenders and hand them to it.
+
+**Why.** The thing being varied differs — a model, a harness configuration —
+and nothing about *reading* the result differs. Two copies of this reporting
+would drift, and the drift would show up as the same measurement being described
+two different ways in two published reports, which is precisely the kind of
+inconsistency that makes a reader stop trusting all of it.
+
+Verified by re-rendering Phase 9's saved results through the shared
+implementation: every number, verdict and case row came back identical, with
+only prose line-wrapping changed.
+
+**Cost.** The renderers take the noun for what varies ("model", "arm") as a
+parameter, which is slightly more awkward than prose written for one caller.

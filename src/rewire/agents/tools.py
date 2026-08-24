@@ -18,7 +18,7 @@ Two further properties are deliberate:
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -54,6 +54,11 @@ class ToolContext:
     changes: ChangeReport
     impact: ImpactReport
     patch: PatchBuilder
+    #: Whether the ranked affected locations may be shown. Off in the ablation
+    #: that withholds them: the task prompt is not the only channel they reach
+    #: the agent through, and closing one while leaving this open would leave
+    #: the experiment measuring nothing.
+    include_impact_locations: bool = True
 
 
 ToolHandler = Callable[[ToolContext, dict[str, Any]], str]
@@ -169,6 +174,9 @@ def _inspect_api_change(context: ToolContext, arguments: dict[str, Any]) -> str:
         )
         if change.detail:
             lines.append(f"  {change.detail}")
+        if not context.include_impact_locations:
+            lines.append("  (affected locations are not available; find them yourself)")
+            continue
         for location in impact.locations[:MAX_IMPACT_LOCATIONS]:
             lines.append(
                 f"  affected {location.file}:{location.line}"
@@ -351,26 +359,54 @@ TOOLS: Final[tuple[Tool, ...]] = (
 TOOLS_BY_NAME: Final[dict[str, Tool]] = {tool.name: tool for tool in TOOLS}
 
 
-def tool_specs() -> tuple[ToolSpec, ...]:
-    """Every tool specification, in a stable order.
+def tool_specs(allowed: Collection[str] | None = None) -> tuple[ToolSpec, ...]:
+    """Tool specifications, in a stable order.
 
     Stable because tool order forms part of a cached prompt prefix, and
     reordering it would silently invalidate the cache on every request.
+
+    Args:
+        allowed: Names to offer. ``None`` offers every tool. Filtering preserves
+            the declaration order, so withholding a tool does not reorder the
+            rest and invalidate more of the cached prefix than it has to.
     """
-    return tuple(tool.spec for tool in TOOLS)
+    if allowed is None:
+        return tuple(tool.spec for tool in TOOLS)
+    permitted = frozenset(allowed)
+    return tuple(tool.spec for tool in TOOLS if tool.name in permitted)
 
 
-def invoke(name: str, context: ToolContext, arguments: dict[str, Any]) -> ToolResult:
+def invoke(
+    name: str,
+    context: ToolContext,
+    arguments: dict[str, Any],
+    *,
+    allowed: Collection[str] | None = None,
+) -> ToolResult:
     """Run a tool, converting expected failures into results the model can read.
 
     Only :class:`~rewire.core.errors.RewireError` is caught. An unexpected
     exception is a bug in Rewire, and swallowing it into the conversation would
     hide it behind whatever the model did next.
+
+    Args:
+        name: Tool the model asked for.
+        context: What the tools operate on.
+        arguments: The model's arguments, unvalidated.
+        allowed: Names that may run. ``None`` allows every tool. A withheld tool
+            is refused here as well as omitted from the offered specifications:
+            a model that guesses the name of a tool an ablation took away must
+            not be able to use it, or the ablation leaks.
     """
-    tool = TOOLS_BY_NAME.get(name)
+    permitted = (
+        TOOLS_BY_NAME
+        if allowed is None
+        else {key: value for key, value in TOOLS_BY_NAME.items() if key in frozenset(allowed)}
+    )
+    tool = permitted.get(name)
     if tool is None:
         return ToolResult(
-            content=f"Unknown tool {name!r}. Available: {', '.join(sorted(TOOLS_BY_NAME))}.",
+            content=f"Unknown tool {name!r}. Available: {', '.join(sorted(permitted))}.",
             is_error=True,
         )
     try:

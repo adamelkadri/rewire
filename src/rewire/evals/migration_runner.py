@@ -28,6 +28,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from rewire.agents.config import AgentConfig
 from rewire.agents.patch import CandidatePatch
 from rewire.core.config import Settings
 from rewire.core.logging import get_logger
@@ -42,13 +43,48 @@ logger = get_logger(__name__)
 
 
 class ArmConfig(BaseModel):
-    """One experimental condition: the same dataset, a different repair budget."""
+    """One experimental condition: the same dataset, a different harness.
+
+    Every field defaults to the shipped configuration, so an arm that names only
+    a repair budget varies only the repair budget. Phase 10 uses the rest to take
+    the deterministic analysis away and measure what it was worth.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     name: str
     max_attempts: int = Field(ge=1)
     description: str = ""
+    #: Whether the agent is told where the affected code is, in the task prompt
+    #: and through ``inspect_api_change``. It is always told what changed.
+    include_impact_locations: bool = True
+    #: Tools taken away from the agent. Empty offers all of them.
+    withheld_tools: tuple[str, ...] = ()
+    #: Whether the pipeline stops when impact analysis finds no affected code.
+    require_affected_code: bool = True
+
+    @property
+    def agent(self) -> AgentConfig:
+        """The agent configuration this arm implies.
+
+        Raises:
+            ValueError: ``withheld_tools`` names a tool that does not exist.
+        """
+        return AgentConfig.without(
+            impact_locations=self.include_impact_locations, tools=self.withheld_tools
+        )
+
+    @property
+    def is_control(self) -> bool:
+        """Whether this arm runs the shipped configuration."""
+        return self.agent.is_default and self.require_affected_code
+
+    def describe_harness(self) -> str:
+        """What this arm changed about the harness, for a report."""
+        parts = [] if self.agent.is_default else [self.agent.describe()]
+        if not self.require_affected_code:
+            parts.append("runs even when impact analysis finds nothing")
+        return "; ".join(parts) or "full configuration"
 
 
 #: The controlled comparison this phase exists to make.
@@ -129,6 +165,9 @@ class ArmResult(BaseModel):
     arm: str
     description: str = ""
     max_attempts: int = 1
+    #: What this arm changed about the harness, carried on the result so a saved
+    #: report can still say what was ablated.
+    harness: str = "full configuration"
     outcomes: tuple[CaseOutcome, ...] = ()
 
     @property
@@ -291,6 +330,8 @@ def evaluate_case(
                 packages=case.packages,
                 apply=False,
                 max_attempts=arm.max_attempts,
+                agent=arm.agent,
+                require_affected_code=arm.require_affected_code,
             ),
             provider=provider,
             settings=settings,
@@ -375,6 +416,7 @@ def run_benchmark(
                 arm=arm.name,
                 description=arm.description,
                 max_attempts=arm.max_attempts,
+                harness=arm.describe_harness(),
                 outcomes=tuple(outcomes),
             )
         )
@@ -407,6 +449,7 @@ def _write_partial(
                 arm=current.name,
                 description=current.description,
                 max_attempts=current.max_attempts,
+                harness=current.describe_harness(),
                 outcomes=tuple(outcomes),
             ),
         ),

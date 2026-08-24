@@ -39,6 +39,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from rewire.agents.config import DEFAULT_AGENT_CONFIG, AgentConfig
 from rewire.agents.migration_agent import AgentBudget, MigrationAgent
 from rewire.agents.patch import CandidatePatch, assert_patch_applies_to, write_patch
 from rewire.agents.workspace import Workspace
@@ -111,6 +112,15 @@ class MigrationRequest:
     #: Permit writing into a tree that already has uncommitted changes.
     allow_dirty: bool = False
     max_attempts: int = 3
+    #: What the agent is given. Varied only by the ablation benchmark; every
+    #: other caller gets the shipped configuration.
+    agent: AgentConfig = DEFAULT_AGENT_CONFIG
+    #: Stop when impact analysis finds nothing. True in the product: calling a
+    #: model about a repository with no affected code wastes money to reach the
+    #: answer that was already available. An ablation measuring what impact
+    #: analysis is worth has to be able to switch this off, because "it can tell
+    #: you there is nothing to do" is part of what it is worth.
+    require_affected_code: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -221,7 +231,7 @@ def run_migration(
 
     index = build_index(request.repository)
     impact = analyse_impact(changes, index, packages=request.packages)
-    if impact.summary.locations == 0:
+    if impact.summary.locations == 0 and request.require_affected_code:
         return finish(MigrationStatus.NO_AFFECTED_CODE, changes=changes, impact=impact)
 
     # Check the write precondition before spending anything on a model. Asking
@@ -247,6 +257,7 @@ def run_migration(
             max_output_tokens=settings.llm.max_output_tokens,
         ),
         runs_dir=settings.runs_dir,
+        config=request.agent,
     )
     repair = migrate_with_repair(
         agent=agent,
