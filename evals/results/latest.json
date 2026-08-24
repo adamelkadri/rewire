@@ -1,0 +1,234 @@
+{
+  "config": {
+    "min_confidence": 0.35,
+    "dataset_dir": "evals/datasets/impact",
+    "rewire_version": "0.1.0"
+  },
+  "cases": [
+    {
+      "name": "decoys",
+      "description": "One genuine SDK call site surrounded by decoys: a local helper with an identically named parameter, an unrelated dict key, the name inside a log string, and a different library that also accepts max_tokens. Measures precision, which recall-only datasets cannot.",
+      "packages": [
+        "openai"
+      ],
+      "targets": [
+        {
+          "target": "request_field_removed:max_tokens",
+          "change_detected": true,
+          "location_metrics": {
+            "counts": {
+              "true_positives": 1,
+              "false_positives": 0,
+              "false_negatives": 0
+            },
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "file_metrics": {
+            "counts": {
+              "true_positives": 1,
+              "false_positives": 0,
+              "false_negatives": 0
+            },
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "missed": [],
+          "spurious": []
+        }
+      ],
+      "duration_seconds": 0.007865625000022192
+    },
+    {
+      "name": "openai_max_tokens",
+      "description": "OpenAI's max_tokens -> max_completion_tokens rename against an application that reaches the SDK three ways: a module-level client, an instance attribute, and a dict payload forwarded with **kwargs.",
+      "packages": [
+        "openai"
+      ],
+      "targets": [
+        {
+          "target": "request_field_removed:max_tokens",
+          "change_detected": true,
+          "location_metrics": {
+            "counts": {
+              "true_positives": 5,
+              "false_positives": 0,
+              "false_negatives": 0
+            },
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "file_metrics": {
+            "counts": {
+              "true_positives": 3,
+              "false_positives": 0,
+              "false_negatives": 0
+            },
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "missed": [],
+          "spurious": []
+        }
+      ],
+      "duration_seconds": 0.006853209000041716
+    },
+    {
+      "name": "raw_http",
+      "description": "A repository calling the API over raw HTTP with no SDK installed. Name resolution finds nothing, so the endpoint path is the only available handle. Measures whether the path strategy earns its place.",
+      "packages": [],
+      "targets": [
+        {
+          "target": "request_field_removed:max_tokens",
+          "change_detected": true,
+          "location_metrics": {
+            "counts": {
+              "true_positives": 1,
+              "false_positives": 0,
+              "false_negatives": 0
+            },
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "file_metrics": {
+            "counts": {
+              "true_positives": 1,
+              "false_positives": 0,
+              "false_negatives": 0
+            },
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "missed": [],
+          "spurious": []
+        }
+      ],
+      "duration_seconds": 0.0062194580000323185
+    },
+    {
+      "name": "response_field",
+      "description": "A response field becoming optional, in a repository that both reads it and constructs it. Reading it is what breaks; the test doubles that write it are unaffected. Separating the two requires knowing which direction the field travels, which name matching alone cannot.",
+      "packages": [
+        "openai"
+      ],
+      "targets": [
+        {
+          "target": "response_field_became_optional:usage.completion_tokens",
+          "change_detected": true,
+          "location_metrics": {
+            "counts": {
+              "true_positives": 2,
+              "false_positives": 0,
+              "false_negatives": 0
+            },
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "file_metrics": {
+            "counts": {
+              "true_positives": 1,
+              "false_positives": 0,
+              "false_negatives": 0
+            },
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "missed": [],
+          "spurious": []
+        }
+      ],
+      "duration_seconds": 0.006364875000031134
+    },
+    {
+      "name": "unrelated",
+      "description": "A repository that never touches the API but reuses its vocabulary: model, max_tokens, completion_tokens, total_tokens. Every target expects zero locations. Reporting anything here is a false positive, and a benchmark without such a case cannot tell a careful analyser from an eager one.",
+      "packages": [
+        "openai"
+      ],
+      "targets": [
+        {
+          "target": "request_field_removed:max_tokens",
+          "change_detected": true,
+          "location_metrics": {
+            "counts": {
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0
+            },
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "file_metrics": {
+            "counts": {
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0
+            },
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "missed": [],
+          "spurious": []
+        },
+        {
+          "target": "response_field_became_optional:usage.completion_tokens",
+          "change_detected": true,
+          "location_metrics": {
+            "counts": {
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0
+            },
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "file_metrics": {
+            "counts": {
+              "true_positives": 0,
+              "false_positives": 0,
+              "false_negatives": 0
+            },
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "missed": [],
+          "spurious": []
+        }
+      ],
+      "duration_seconds": 0.006380416000069999
+    }
+  ],
+  "location_metrics": {
+    "counts": {
+      "true_positives": 9,
+      "false_positives": 0,
+      "false_negatives": 0
+    },
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0
+  },
+  "file_metrics": {
+    "counts": {
+      "true_positives": 6,
+      "false_positives": 0,
+      "false_negatives": 0
+    },
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0
+  },
+  "duration_seconds": 0.03417979199991805
+}

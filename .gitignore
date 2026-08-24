@@ -19,9 +19,6 @@ coverage.xml
 
 # Rewire runtime artefacts
 .rewire/
-evals/results/*.json
-evals/results/*.md
-!evals/results/.gitkeep
 
 # Secrets and local config
 .env
@@ -33,6 +30,8 @@ evals/results/*.md
 .vscode/
 .DS_Store
 
-# Crash-recovery artefacts from a benchmark run in progress.
-evals/results/migration-partial.json
-evals/results/models-partial.json
+# Crash-recovery artefacts from a benchmark run in progress. Everything else
+# under evals/results is tracked on purpose: those files are the evidence for
+# the numbers in the README, and a claim whose source is gitignored cannot be
+# checked by anyone reading the repository.
+evals/results/*-partial.json
