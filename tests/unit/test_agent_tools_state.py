@@ -21,7 +21,7 @@ from rewire.changes import diff_specs, parse_spec_text
 from rewire.core.config import LLMSettings
 from rewire.core.errors import AgentError, ConfigurationError
 from rewire.impact import analyse_impact
-from rewire.llm.registry import build_provider
+from rewire.llm.registry import build_provider, build_provider_for, credential_for
 
 SPEC = (
     'openapi: "3.0.3"\ninfo: {{title: OpenAI API, version: "{v}"}}\n'
@@ -300,3 +300,31 @@ def test_openrouter_reuses_the_chat_completions_adapter() -> None:
         LLMSettings(provider="openrouter", model="anything", openrouter_api_key="k")
     )
     assert provider.name == "openai"
+
+
+def test_a_credential_is_found_only_where_one_is_set() -> None:
+    """The comparison harness asks this before spending an hour on a model."""
+    settings = LLMSettings(provider="openai", openai_api_key="k")
+    assert credential_for(settings, "openai") == "k"
+    assert credential_for(settings, "anthropic") is None
+
+
+def test_an_empty_credential_counts_as_absent() -> None:
+    """An empty environment variable is a missing key, not a key of length zero."""
+    assert credential_for(LLMSettings(openai_api_key=""), "openai") is None
+
+
+def test_a_model_can_be_built_without_changing_the_configured_provider() -> None:
+    """Comparing models must vary the model and nothing else."""
+    settings = LLMSettings(
+        provider="anthropic", model="claude-opus-5", openai_api_key="k", temperature=0.7
+    )
+    provider = build_provider_for(settings, provider="openai", model="gpt-4o-mini")
+    assert (provider.name, provider.model) == ("openai", "gpt-4o-mini")
+    assert provider.temperature == 0.7
+    assert settings.provider == "anthropic"
+
+
+def test_building_an_unknown_provider_is_refused() -> None:
+    with pytest.raises(ConfigurationError, match="unknown provider"):
+        build_provider_for(LLMSettings(openai_api_key="k"), provider="acme", model="x")

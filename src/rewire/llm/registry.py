@@ -2,9 +2,46 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from rewire.core.config import LLMSettings
 from rewire.core.errors import ConfigurationError
 from rewire.llm.base import LLMProvider
+
+#: Providers Rewire has an adapter for. ``null`` is the unconfigured default and
+#: is deliberately absent: it is a state, not a destination.
+SUPPORTED_PROVIDERS: Final[frozenset[str]] = frozenset({"anthropic", "openai", "openrouter"})
+
+
+def credential_for(settings: LLMSettings, provider: str) -> str | None:
+    """The configured API key for ``provider``, or ``None`` if there is not one.
+
+    Lets a caller find out whether a model is runnable *before* spending an hour
+    of benchmark time discovering it is not.
+    """
+    secret = getattr(settings, f"{provider}_api_key", None)
+    if secret is None:
+        return None
+    key = secret.get_secret_value()
+    return key or None
+
+
+def build_provider_for(settings: LLMSettings, *, provider: str, model: str) -> LLMProvider:
+    """Build a provider for an explicit provider/model pair.
+
+    Everything else — temperature, timeout, retry budget — comes from the same
+    settings, so a comparison between two models differs in the model and
+    nothing else.
+
+    Raises:
+        ConfigurationError: The provider is unknown or has no credential.
+    """
+    if provider not in SUPPORTED_PROVIDERS:
+        raise ConfigurationError(
+            f"unknown provider {provider!r}",
+            supported=sorted(SUPPORTED_PROVIDERS),
+        )
+    return build_provider(settings.model_copy(update={"provider": provider, "model": model}))
 
 
 def build_provider(settings: LLMSettings) -> LLMProvider:
@@ -58,4 +95,9 @@ def build_provider(settings: LLMSettings) -> LLMProvider:
     )
 
 
-__all__ = ["build_provider"]
+__all__ = [
+    "SUPPORTED_PROVIDERS",
+    "build_provider",
+    "build_provider_for",
+    "credential_for",
+]

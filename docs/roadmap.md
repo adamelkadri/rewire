@@ -17,7 +17,7 @@ Legend: **done** · *in progress* · planned
 | 6 | Agent repair loop (sandbox feedback → bounded retries) | **done** |
 | 7 | End-to-end MVP (`rewire migrate`) | **done** |
 | 8 | Evaluation framework (datasets, metrics, published results) | **done** |
-| 9 | Model comparison across providers | planned |
+| 9 | Model comparison across providers | **done** |
 | 10 | Agent ablations (AST vs text, repair on/off, context strategies) | planned |
 | 11 | GitHub integration (branch, PR, never auto-merge) | planned |
 | 12 | Automatic change monitoring | planned |
@@ -30,6 +30,69 @@ Legend: **done** · *in progress* · planned
 
 Milestones: **0–3** core intelligence · **4–7** working agent · **8–10** measured
 agent · **11–18** production product.
+
+## What Phase 9 delivers
+
+- `rewire eval models --model openai:gpt-4o --model openai:gpt-4o-mini …` — the
+  same ten cases, the same prompts, the same tools and the same repair budget for
+  every model, graded by the same hidden contract tests. The only thing that
+  differs between columns is the model.
+- Provider selection decoupled from configuration: `build_provider_for` builds
+  any supported provider/model pair from one settings object, so temperature,
+  timeout and retry budget are held constant across the comparison by
+  construction rather than by discipline.
+- **A 95% Wilson confidence interval on every rate, and an exact paired sign test
+  between every pair of models.** The report prints "not distinguishable from
+  chance" instead of a ranking whenever the test says so (ADR-037).
+- **Agreement structure, not just a ranking** (ADR-039): the cases *no* model
+  solved, reported as Rewire's ceiling rather than the model's, and the cases
+  *every* model solved, which separate nothing and are excluded from the paired
+  test.
+- Per-model overclaim rate, denominated in patches Rewire vouched for — the
+  number that answers whether verification or the model is the thing to fix.
+- A requested model with no API key is reported as skipped with the reason and
+  the environment variable that would fix it, never dropped (ADR-038).
+- A crashed model is recorded the same way and the models that already ran are
+  kept, along with a partial results file written after each model.
+
+**Measured, four models, ten cases each, one run per model:**
+
+| Model | Correct | 95% CI | Vouched for | Overclaimed | Cost |
+|-------|---------|--------|-------------|-------------|------|
+| `gpt-4o` | **6/10** | 31–83% | 8 | 3 | $0.19 |
+| `gpt-4o-mini` | **4/10** | 17–69% | 5 | 2 | $0.02 |
+| `gpt-4.1` | **6/10** | 31–83% | 7 | 2 | $0.15 |
+| `gpt-4.1-mini` | **5/10** | 24–76% | 5 | 1 | $0.04 |
+
+All six pairwise comparisons are inconclusive; the largest split is 2–0 on two
+disagreements (p = 0.50). Nothing here separates these models.
+
+What the run does establish is the pooled overclaim rate: across all four models
+Rewire vouched for 25 patches and 8 were wrong — **32% (17–52%)**, with every
+individual model between 20% and 40%. A better model did not buy a more
+trustworthy verdict, which points the next round of work at verification rather
+than at model selection.
+
+Three cases — `04-response-field-renamed`, `05-enum-value-removed`,
+`07-required-field-added` — were solved by no model. Case 04 is the sharpest:
+three of four models produced a patch Rewire vouched for and the hidden contract
+test rejected. Wall clock 1725s, total spend $0.40.
+
+## What Phase 9 explicitly does not deliver
+
+- **Still ten cases, and now four columns.** More models do not make a small
+  dataset larger. Every pairwise comparison here has single-digit disagreement
+  counts, which is why they mostly come back inconclusive.
+- **One run per model.** Phase 8 established that two runs of the same
+  configuration mostly agree; this phase did not repeat that per model, so
+  none of these numbers has a variance estimate.
+- No Anthropic or OpenRouter results, because this project has no key for either.
+  The machinery is provider-agnostic and the report names the gap; filling it is
+  one environment variable and a rerun.
+- No cost-per-success or latency-per-case optimisation. The cost column is
+  reported, not acted on; Phase 17 is where that becomes work.
+- No prompt or tool variation between models. Every model gets the prompt tuned
+  against gpt-4o in Phase 6, which is a confound this phase does not remove.
 
 ## What Phase 8 delivers
 
@@ -348,6 +411,31 @@ debt below.
   reads it yet.
 - No Git or GitHub operations, no HTTP API, no dashboard.
 - No evaluation datasets or published metrics.
+
+## Known technical debt carried out of Phase 9
+
+- **One run per model.** Phase 8 ran its two arms twice; this phase ran four
+  models once each. A model that got lucky on two cases looks two cases better,
+  and nothing here would show it. Repeating each model n times is the fix and
+  multiplies an already hour-long run by n.
+- **The prompt is a confound.** Every model is given the repair prompt that was
+  tuned against gpt-4o in Phase 6. A model that would do better with different
+  wording is measured on someone else's prompt, and this phase cannot separate
+  "worse model" from "worse fit to this prompt".
+- **No provider outside OpenAI was actually executed.** The provider layer is
+  agnostic and the Anthropic path is unit-tested, but no Anthropic or OpenRouter
+  model has run this benchmark. Until one does, "compares across providers"
+  describes the machinery and not the published table.
+- Model prices come from a dated snapshot in `llm/pricing.py`. The report prints
+  the date, and an unpriced model reports unknown rather than free, but nothing
+  checks the table against the providers' current published prices.
+- `eval models` writes its inner per-case partial to the same
+  `evals/results/migration-partial.json` that `eval migrate` uses, so a
+  comparison overwrites a migration benchmark's crash-recovery file. Both are
+  scratch and both are gitignored, but the collision is untidy.
+- The comparison's own partial file is written after each *model*, not each case,
+  so a run killed inside a model loses that model's completed cases even though
+  the inner file still holds them.
 
 ## Known technical debt carried out of Phase 8
 

@@ -102,6 +102,24 @@ def test_an_invalid_manifest_is_an_error(tmp_path: Path) -> None:
         load_migration_case(tmp_path)
 
 
+def test_two_cases_with_the_same_identifier_are_rejected(tmp_path: Path) -> None:
+    """Duplicate identifiers would silently overwrite each other in every report."""
+    manifest = {
+        "case_id": "01-clash",
+        "description": "d",
+        "expectation": "migrate",
+    }
+    for name in ("a", "b"):
+        directory = tmp_path / name
+        (directory / "repo").mkdir(parents=True)
+        (directory / "case.json").write_text(json.dumps(manifest), encoding="utf-8")
+        (directory / "old.yaml").write_text("openapi: '3.0.3'\n", encoding="utf-8")
+        (directory / "new.yaml").write_text("openapi: '3.0.3'\n", encoding="utf-8")
+
+    with pytest.raises(EvaluationError, match="duplicate case identifiers"):
+        load_migration_cases(tmp_path)
+
+
 def test_a_missing_dataset_is_an_error(tmp_path: Path) -> None:
     with pytest.raises(EvaluationError, match="does not exist"):
         load_migration_cases(tmp_path / "absent")

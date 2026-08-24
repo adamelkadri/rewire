@@ -906,3 +906,79 @@ case is how anyone will know.
 
 **Cost.** The published success rate is lower than it would otherwise be, by
 roughly one case in ten. That is the correct price.
+
+---
+
+## ADR-037 — Every comparison reports a confidence interval and a significance test
+
+**Decision.** The model comparison reports a 95% Wilson interval on every rate,
+and compares each pair of models with an exact paired sign test over the cases
+they disagreed on. The report states "not distinguishable from chance" whenever
+the test says so, in place of a ranking.
+
+**Why.** On ten cases, 6/10 against 4/10 reads as a fifty-percent improvement
+and is two cases. That difference has an exact two-sided p-value of 0.5 — the
+same as a coin landing the same way twice. A comparison table without that number
+beside it invites a conclusion the data cannot support, and the reader has no way
+to tell.
+
+Two specific choices, both because *n* is small:
+
+* **Wilson, not the normal approximation.** At *n* = 10 the textbook interval is
+  too narrow and produces bounds outside `[0, 1]` near the extremes — exactly
+  where these results sit. Wilson is well behaved at 0/10 and 10/10.
+* **A paired sign test, not a two-proportion test.** Every model runs the same
+  cases, so the data is paired, and the pairing carries most of the information.
+  Cases every model solves and cases none solves say nothing about which model is
+  better; only the disagreements do. With a handful of those, an exact binomial
+  test is the honest instrument.
+
+**Cost.** The headline is less quotable. Reporting "gpt-4o beat gpt-4o-mini" would
+be a better sentence and an unsupported one.
+
+---
+
+## ADR-038 — A model with no credential is reported, not dropped
+
+**Decision.** `rewire eval models` records a requested model whose provider has
+no API key as a skipped run carrying the reason and the environment variable that
+would fix it. Skipped models appear in a "Not run" section of the report. A model
+whose run crashes is recorded the same way, and the models that already ran are
+kept.
+
+**Why.** Silently dropping a model produces a report that reads as complete while
+missing a provider — which is the specific way a cross-provider comparison misleads.
+This project has an OpenAI key and no Anthropic one, so the published comparison
+has a hole in it; the report is required to show the hole rather than close it by
+omission.
+
+Keeping completed runs when a later model crashes is the same argument as the
+benchmark's per-case error handling: these runs cost real money, and one broken
+provider must not discard what the others already paid for.
+
+**Cost.** The report is longer and its headline table has fewer rows than the
+command line requested. Both are accurate.
+
+---
+
+## ADR-039 — Models are compared by agreement structure, not only by rank
+
+**Decision.** The comparison reports which cases *no* model solved and which
+cases *every* model solved, separately from the per-model rates.
+
+**Why.** The ranking is the least useful thing a small cross-model benchmark
+produces. The agreement structure is the useful thing, and it points improvement
+work at the right target:
+
+* A case no model solves is **Rewire's ceiling, not the model's**. A stronger
+  model did not move it, so the fix is in the harness — impact analysis, prompt,
+  tools — and shopping for a better model will not help.
+* A case every model solves contributes nothing to a comparison between models,
+  and is excluded from the paired test for that reason.
+
+The same logic applies to the overclaim rate, which is reported per model. If a
+weak model overclaims and a strong one does not, the fix is a better model. If
+every model overclaims at a similar rate, the fix is Rewire's verification.
+
+**Cost.** None, beyond a longer report. This is arithmetic over results already
+collected.

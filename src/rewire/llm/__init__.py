@@ -16,12 +16,18 @@ from rewire.llm.models import (
     Usage,
 )
 from rewire.llm.pricing import PRICING_SNAPSHOT_DATE, estimate_cost, known_models, pricing_for
-from rewire.llm.registry import build_provider
+from rewire.llm.registry import (
+    SUPPORTED_PROVIDERS,
+    build_provider,
+    build_provider_for,
+    credential_for,
+)
 from rewire.llm.scripted import ScriptBuilder, ScriptedProvider
 
 __all__ = [
     "DEFAULT_MAX_OUTPUT_TOKENS",
     "PRICING_SNAPSHOT_DATE",
+    "SUPPORTED_PROVIDERS",
     "LLMProvider",
     "LLMResponse",
     "Message",
@@ -33,6 +39,8 @@ __all__ = [
     "ToolSpec",
     "Usage",
     "build_provider",
+    "build_provider_for",
+    "credential_for",
     "estimate_cost",
     "known_models",
     "pricing_for",

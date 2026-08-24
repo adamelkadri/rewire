@@ -51,6 +51,16 @@ from rewire.evals.migration_runner import (
 )
 from rewire.evals.migration_runner import render_markdown as render_benchmark
 from rewire.evals.migration_runner import write_results as write_benchmark
+from rewire.evals.model_matrix import (
+    DEFAULT_COMPARISON_ARM,
+    ComparisonConfig,
+    ModelComparison,
+    ModelSpec,
+    compare_models,
+    render_money,
+)
+from rewire.evals.model_matrix import render_markdown as render_comparison
+from rewire.evals.model_matrix import write_results as write_comparison
 from rewire.impact import (
     DEFAULT_MIN_CONFIDENCE,
     ImpactReport,
@@ -940,6 +950,121 @@ def eval_migrate(
         console.print(f"[dim]wrote {escape(str(json_path))} and {escape(str(markdown_path))}[/dim]")
     else:
         console.print(render_benchmark(result))
+
+
+def _render_comparison(comparison: ModelComparison) -> None:
+    """Print the headline table, and what the numbers do not support."""
+    table = Table(title="Model comparison", title_justify="left")
+    table.add_column("Model")
+    table.add_column("Correct", justify="right")
+    table.add_column("95% CI", justify="right")
+    table.add_column("Claimed", justify="right")
+    table.add_column("Overclaimed", justify="right")
+    table.add_column("Cost", justify="right")
+
+    for run in comparison.compared:
+        cost = render_money(run.cost_usd)
+        over = f"[red]{run.overclaimed}[/red]" if run.overclaimed else "[green]0[/green]"
+        table.add_row(
+            run.label,
+            f"{run.succeeded}/{run.total}",
+            run.interval.render(),
+            str(run.claimed),
+            over,
+            cost,
+        )
+    console.print()
+    console.print(table)
+
+    for pair in comparison.pairs():
+        style = "green" if pair.is_significant else "yellow"
+        console.print(f"[{style}]{escape(pair.verdict())}[/{style}]")
+
+    if unsolved := comparison.unsolved():
+        console.print(
+            f"[yellow]{len(unsolved)} case(s) no model solved: "
+            f"{escape(', '.join(unsolved))}. That is Rewire's ceiling, not the model's."
+            "[/yellow]"
+        )
+    for run in comparison.skipped:
+        console.print(f"[dim]skipped {escape(run.label)}: {escape(run.skipped)}[/dim]")
+
+
+@eval_app.command("models")
+def eval_models(
+    model: Annotated[
+        list[str] | None,
+        typer.Option("--model", help="Model to compare, as provider:model. Repeatable."),
+    ] = None,
+    dataset: Annotated[
+        Path,
+        typer.Option("--dataset", exists=True, file_okay=False, help="Benchmark dataset root."),
+    ] = Path("evals/datasets/migration"),
+    case: Annotated[
+        list[str] | None, typer.Option("--case", help="Run only these case identifiers.")
+    ] = None,
+    limit: Annotated[
+        int, typer.Option("--limit", min=0, help="Stop after this many cases per model.")
+    ] = 0,
+    max_attempts: Annotated[
+        int, typer.Option("--max-attempts", min=1, max=10, help="Repair budget, same for all.")
+    ] = DEFAULT_COMPARISON_ARM.max_attempts,
+    write: Annotated[
+        bool, typer.Option("--write/--no-write", help="Write results under evals/results/.")
+    ] = True,
+    results_dir: Annotated[
+        Path, typer.Option("--results-dir", help="Where to write results.")
+    ] = Path("evals/results"),
+) -> None:
+    """Run the same benchmark across several models and compare them.
+
+    Every model gets identical cases, prompts, tools and repair budget, and every
+    patch is graded by the same hidden contract tests, so the only thing that
+    differs between columns is the model.
+
+    Differences are reported with a confidence interval and an exact paired
+    significance test. On a ten-case dataset most of them will not be separable
+    from chance, and the report says so rather than declaring a winner.
+
+    A model whose provider has no API key configured is listed as skipped with
+    that reason, never quietly dropped.
+
+    This costs real model calls and real container time.
+    """
+    if not model:
+        raise ConfigurationError(
+            "no models to compare",
+            remedy="pass --model provider:model at least once, e.g. --model openai:gpt-4o",
+        )
+
+    settings = get_settings()
+    specs = tuple(ModelSpec.parse(text) for text in model)
+    cases = load_migration_cases(dataset)
+    settings.ensure_data_dirs()
+
+    arm = DEFAULT_COMPARISON_ARM.model_copy(update={"max_attempts": max_attempts})
+    with console.status("[bold]comparing models") as status:
+        comparison = compare_models(
+            ComparisonConfig(
+                dataset=dataset,
+                models=specs,
+                arm=arm,
+                only=tuple(case or ()),
+                limit=limit,
+                results_dir=results_dir,
+                incremental=write,
+                progress=lambda message: status.update(f"[bold]{escape(message)}"),
+            ),
+            cases,
+            settings=settings,
+        )
+
+    _render_comparison(comparison)
+    if write:
+        json_path, markdown_path = write_comparison(comparison, results_dir)
+        console.print(f"[dim]wrote {escape(str(json_path))} and {escape(str(markdown_path))}[/dim]")
+    else:
+        console.print(render_comparison(comparison))
 
 
 @app.command()

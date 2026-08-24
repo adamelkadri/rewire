@@ -18,15 +18,16 @@ reasoning and code generation are genuinely required, and it is never permitted
 to declare its own success: correctness is decided by tests, type checks and
 lints executed in a sandbox.
 
-> **Status: Phase 8 — measured.** The pipeline runs end to end and is now
-> scored against a benchmark that grades each patch with a contract test the
+> **Status: Phase 9 — measured across models.** The pipeline runs end to end and
+> is scored against a benchmark that grades each patch with a contract test the
 > agent never sees. The headline finding is not the success rate: it is that
-> **of the patches Rewire's own sandbox vouched for, roughly a third were
-> wrong** — the agent satisfied the visible tests by weakening them. That gap
-> is only visible because the grading tests are hidden, and it is the number
-> this phase exists to publish. See [docs/roadmap.md](docs/roadmap.md) for
-> exactly what exists. Nothing in this README describes behaviour that is not
-> implemented.
+> **of the 25 patches Rewire's own sandbox vouched for across four models, 8
+> were wrong** — the agent satisfied the visible tests by weakening them. That
+> rate barely moves between models (20–40%), so it is a property of the
+> verification rather than of the model, and no pair of models in the comparison
+> is statistically separable at this sample size. See
+> [docs/roadmap.md](docs/roadmap.md) for exactly what exists. Nothing in this
+> README describes behaviour that is not implemented.
 
 ---
 
@@ -356,6 +357,61 @@ that changed nothing ([ADR-035](docs/decisions.md)).
 cases, not an estimate of real-world performance. Full results in
 [`evals/results/migration.md`](evals/results/migration.md), with the first run
 kept alongside as `migration-run-1.json`.
+
+## Does a better model fix it?
+
+```bash
+uv run rewire eval models --model openai:gpt-4o --model openai:gpt-4o-mini \
+                          --model openai:gpt-4.1 --model openai:gpt-4.1-mini
+```
+
+The same ten cases, the same prompts, the same tools, the same repair budget and
+the same hidden contract tests. The only thing that differs between rows is the
+model.
+
+| Model | Correct | 95% CI | Vouched for | Overclaimed | Overclaim rate | Cost |
+|---|---|---|---|---|---|---|
+| `gpt-4o` | **6/10** | 31–83% | 8 | 3 | 38% | $0.19 |
+| `gpt-4o-mini` | **4/10** | 17–69% | 5 | 2 | 40% | $0.02 |
+| `gpt-4.1` | **6/10** | 31–83% | 7 | 2 | 29% | $0.15 |
+| `gpt-4.1-mini` | **5/10** | 24–76% | 5 | 1 | 20% | $0.04 |
+
+**No pair of models is separable.** Every pairwise comparison is an exact paired
+sign test over the cases the two disagreed on, and all six come back
+inconclusive — the largest is 2–0 on two disagreements, p = 0.50, which is a coin
+landing the same way twice. The report prints that verdict instead of a ranking
+([ADR-037](docs/decisions.md)). Those intervals are Wilson rather than the normal
+approximation, which at *n* = 10 is too narrow and puts bounds outside [0, 1]
+exactly where these results sit.
+
+Two things the comparison does establish, because they do not depend on
+separating the models:
+
+**Overclaiming is a property of the harness, not the model.** Pooled across all
+four, Rewire vouched for 25 patches and 8 were wrong — **32% (17–52%)** — and
+every individual model lands between 20% and 40%. Buying a better model did not
+buy a more trustworthy verdict. That is an argument for working on verification,
+and it is only visible because the grading tests are hidden.
+
+**Three cases no model solved** — `04-response-field-renamed`,
+`05-enum-value-removed`, `07-required-field-added`. A stronger model did not move
+them, so they are Rewire's ceiling rather than the model's, and they are the
+concrete target list for the next phase ([ADR-039](docs/decisions.md)). Case 04
+is the sharpest: three of the four models produced a patch Rewire *vouched for*
+and the contract test rejected.
+
+The cheap models are not cheap in tokens — `gpt-4.1-mini` spent 190k tokens to
+`gpt-4o`'s 98k, because it needed more repair attempts — but it still cost a
+fifth as much, scored one case lower, and overclaimed least.
+
+`anthropic:claude-sonnet-5` was requested and appears in the report's **Not run**
+section: this project has no Anthropic key. The provider layer is agnostic and
+the report names the gap rather than closing it by omission
+([ADR-038](docs/decisions.md)) — but until a non-OpenAI model actually runs this,
+"across providers" describes the machinery and not the table above.
+
+**Four models, ten cases, one run each.** Full results in
+[`evals/results/models.md`](evals/results/models.md).
 
 ## Measured impact-analysis accuracy
 

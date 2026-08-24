@@ -33,5 +33,6 @@ evals/results/*.md
 .vscode/
 .DS_Store
 
-# Crash-recovery artefact from a benchmark run in progress.
+# Crash-recovery artefacts from a benchmark run in progress.
 evals/results/migration-partial.json
+evals/results/models-partial.json

@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from rewire.agents.patch import CandidatePatch, FileChange, FileEdit, PatchBuilder
-from rewire.core.errors import PatchError
+from rewire.core.errors import PatchError, SandboxError
 from rewire.sandbox.models import (
     CheckKind,
     CheckResult,
@@ -26,7 +26,7 @@ from rewire.sandbox.models import (
 )
 from rewire.sandbox.scripted import ScriptedRunner
 from rewire.sandbox.toolchain import Check
-from rewire.sandbox.verifier import classify, decide, verify
+from rewire.sandbox.verifier import _write_overlay, classify, decide, verify
 
 SOURCE = 'def payload():\n    return {"max_tokens": 1}\n'
 TEST = 'from app import payload\n\n\ndef test_field():\n    assert "max_tokens" in payload()\n'
@@ -363,3 +363,89 @@ def test_a_rule_stops_matching_once_its_uses_are_spent() -> None:
     first = scripted.run(("python", "-m", "pytest"), timeout=1)
     second = scripted.run(("python", "-m", "pytest"), timeout=1)
     assert (first.exit_code, second.exit_code) == (3, 0)
+
+
+# ----------------------------------------------------------------- overlay ---
+
+
+def test_an_overlay_is_written_into_the_staged_copy(tmp_path: Path) -> None:
+    """The hidden contract test reaches the sandbox this way and no other."""
+    root = tmp_path / "staged"
+    root.mkdir()
+    written = _write_overlay(
+        root, {"tests/test_contract.py": "def test_x():\n    pass\n", "note.txt": "hello"}
+    )
+    assert written == ("note.txt", "tests/test_contract.py")
+    assert (root / "tests/test_contract.py").read_text(encoding="utf-8").startswith("def test_x")
+
+
+def test_an_overlay_creates_the_directories_it_needs(tmp_path: Path) -> None:
+    root = tmp_path / "staged"
+    root.mkdir()
+    _write_overlay(root, {"a/b/c/test_deep.py": "x = 1\n"})
+    assert (root / "a/b/c/test_deep.py").is_file()
+
+
+def test_a_symlinked_root_is_not_mistaken_for_an_escape(tmp_path: Path) -> None:
+    """A symlinked root must not be mistaken for an escape.
+
+    A macOS temporary directory is itself a symlink, and resolving only one side
+    made every legitimate overlay path look like one.
+    """
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    assert _write_overlay(link, {"tests/test_x.py": "x = 1\n"}) == ("tests/test_x.py",)
+    assert (real / "tests/test_x.py").is_file()
+
+
+@pytest.mark.parametrize("escape", ["../outside.py", "tests/../../outside.py"])
+def test_an_overlay_path_may_not_escape_the_staged_copy(tmp_path: Path, escape: str) -> None:
+    """An overlay path may not write outside the staged copy.
+
+    The overlay is dataset-authored, but a path escaping the copy would reach the
+    host, so the guard is not optional.
+    """
+    root = tmp_path / "staged"
+    root.mkdir()
+    with pytest.raises(SandboxError, match="escapes the staged repository"):
+        _write_overlay(root, {escape: "danger = 1\n"})
+    assert not (tmp_path / "outside.py").exists()
+
+
+def test_an_absolute_overlay_path_escapes_too(tmp_path: Path) -> None:
+    root = tmp_path / "staged"
+    root.mkdir()
+    with pytest.raises(SandboxError, match="escapes the staged repository"):
+        _write_overlay(root, {str(tmp_path / "elsewhere.py"): "danger = 1\n"})
+
+
+def test_an_unwritable_overlay_is_a_sandbox_error(tmp_path: Path) -> None:
+    root = tmp_path / "staged"
+    root.mkdir()
+    (root / "tests").write_text("this is a file, not a directory", encoding="utf-8")
+    with pytest.raises(SandboxError, match="could not write overlay file"):
+        _write_overlay(root, {"tests/test_x.py": "x = 1\n"})
+
+
+def test_an_overlay_adds_a_test_suite_to_a_repository_that_had_none(
+    tmp_path: Path, runner: ScriptedRunner, factory
+) -> None:
+    """A repository with no tests of its own gains one from the overlay.
+
+    The check plan therefore has to be recomputed after the overlay is written,
+    rather than reused from the baseline run.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "app.py").write_text(SOURCE, encoding="utf-8")
+    (root / "pyproject.toml").write_text('[project]\nname="a"\nversion="1"\n', encoding="utf-8")
+
+    report = verify(
+        root,
+        make_patch(root, "app.py", "max_tokens", "max_completion_tokens"),
+        runner_factory=factory,
+        overlay={"tests/test_contract.py": TEST},
+    )
+    assert any(check.kind is CheckKind.TESTS for check in report.patched)

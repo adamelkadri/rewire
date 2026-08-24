@@ -428,3 +428,41 @@ def test_a_case_that_never_called_a_model_costs_zero_not_unknown(
         ),
     )
     assert arm.total_cost_usd == 0.5
+
+
+def test_a_limit_truncates_the_case_list(case: MigrationCase, settings: Settings) -> None:
+    """--limit exists so a slice can be run cheaply; it has to actually cut."""
+    result = run_benchmark(
+        BenchmarkConfig(
+            dataset=Path("d"),
+            arms=(ArmConfig(name="solo", max_attempts=1),),
+            limit=1,
+            results_dir=settings.data_dir,
+            incremental=False,
+        ),
+        [case, case],
+        provider=provider(),
+        settings=settings,
+        verifier=verifier(migration=Verdict.VERIFIED, grading=Verdict.VERIFIED),
+    )
+    assert result.arms[0].total == 1
+    assert result.cases == 1
+
+
+def test_the_report_breaks_the_headline_apart_by_tag() -> None:
+    """A single rate hides which kinds of change work and which do not."""
+    tagged = CaseOutcome(
+        case_id="01-case",
+        arm="solo",
+        expectation=Expectation.MIGRATE,
+        tags=("change:field-renamed", "shape:single-module"),
+        status=MigrationStatus.VERIFIED,
+        claimed_verified=True,
+        truly_correct=True,
+    )
+    markdown = render_markdown(
+        BenchmarkResult(arms=(ArmResult(arm="solo", max_attempts=1, outcomes=(tagged,)),))
+    )
+    assert "| Tag | Correct |" in markdown
+    assert "| change:field-renamed | 1/1 |" in markdown
+    assert "| shape:single-module | 1/1 |" in markdown
