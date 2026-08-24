@@ -1,0 +1,12 @@
+{
+  "case_id": "10-partially-migrated",
+  "description": "One call site was already updated by hand; the rest were not.",
+  "expectation": "migrate",
+  "packages": [],
+  "tags": [
+    "change:field-renamed",
+    "shape:multi-module",
+    "difficulty:partial"
+  ],
+  "rationale": "Half the repository already uses the new name. A correct migration finishes the job without re-breaking the part that is already right."
+}

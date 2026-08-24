@@ -127,6 +127,9 @@ ignore = [
 # subprocess with fixed argv, and need no docstrings.
 "tests/**" = ["S101", "S105", "S106", "S603", "D100", "D101", "D102", "D103", "ANN"]
 "src/rewire/cli.py" = ["T20"]  # the CLI is allowed to write to stdout via rich/typer
+# Dataset generators are scripts: they print progress and hold long literal
+# fixtures whose formatting is the fixture.
+"evals/runners/**" = ["T20", "D103", "E501"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

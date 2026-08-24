@@ -16,7 +16,7 @@ Legend: **done** · *in progress* · planned
 | 5 | Docker sandbox (isolated execution, resource limits, verification) | **done** |
 | 6 | Agent repair loop (sandbox feedback → bounded retries) | **done** |
 | 7 | End-to-end MVP (`rewire migrate`) | **done** |
-| 8 | Evaluation framework (datasets, metrics, published results) | planned |
+| 8 | Evaluation framework (datasets, metrics, published results) | **done** |
 | 9 | Model comparison across providers | planned |
 | 10 | Agent ablations (AST vs text, repair on/off, context strategies) | planned |
 | 11 | GitHub integration (branch, PR, never auto-merge) | planned |
@@ -30,6 +30,63 @@ Legend: **done** · *in progress* · planned
 
 Milestones: **0–3** core intelligence · **4–7** working agent · **8–10** measured
 agent · **11–18** production product.
+
+## What Phase 8 delivers
+
+- `rewire eval migrate` — the whole pipeline run over a labelled dataset, in two
+  arms that differ only in repair budget, with results published to
+  `evals/results/migration.{json,md}`.
+- **Grading by tests the agent never sees.** Each case ships a `hidden/`
+  contract test injected into the sandbox copy after the patch is applied. An
+  agent handed the repository's own suite can always pass it by editing the
+  assertion; it cannot edit a file that is not there.
+- Three numbers per arm, never one: **correct** (the hidden test accepted the
+  patch), **verified** (Rewire said so), and **overclaimed** (Rewire said so and
+  was wrong). The gap between the first two is the rate at which Rewire's own
+  verification was fooled — a number no self-graded benchmark can report.
+- Ten cases across distinct change kinds and repository shapes: field renamed,
+  field removed, response field renamed, enum value removed, required field
+  added, raw HTTP with no SDK, a wrapper whose parameter shares the field's
+  name, a partially-migrated repository, a rename spread across three modules,
+  and a negative case where the correct action is to do nothing.
+- A dataset that is itself tested: every case's visible tests must pass before
+  migration and every case's hidden tests must **fail** before it. A hidden test
+  that already passes grades nothing and would silently award a success to a
+  patch that changed nothing.
+- Per-tag breakdowns, per-case cost and token counts, and a partial results file
+  written after every case so a killed run keeps what it paid for.
+
+**Measured, two independent runs of all ten cases:**
+
+| Arm | Correct | Verified | Overclaimed | Repaired |
+|-----|---------|----------|-------------|----------|
+| repair off (1 attempt) | **4/10 (40%)** | 4–5 | 1–2 | 0 |
+| repair on (3 attempts) | **6/10 (60%)** | 8 | 3 | 3–4 |
+
+Both runs produced the same headline rates, and nine of ten cases reached the
+same outcome in both. The one that moved changed between two failure modes, not
+into success.
+
+The number worth reading is the third column. Rewire's sandbox vouched for eight
+patches and only five were real migrations. The three that were not passed the
+repository's visible tests by changing them: renaming the wrapper's *public
+Python parameter* to match the wire field, deleting the logic that could not be
+migrated and replacing the assertion with a comment, and dropping the field
+entirely while changing the test to assert its absence. None is distinguishable
+from a legitimate test update by inspecting the diff, which is the entire
+argument for hidden tests.
+
+## What Phase 8 explicitly does not deliver
+
+- **Ten cases is not 120.** The dataset is small, hand-written by the same
+  person who wrote the tool, and generated from templates. It measures whether
+  the loop works on distinct shapes of problem; it does not estimate performance
+  on real repositories.
+- One model. Comparing providers is Phase 9.
+- One dimension of ablation — repair on and off. Context strategies and
+  AST-versus-text are Phase 10.
+- No statistical treatment. Ten cases, two runs; the difference between arms is
+  not tested for significance and should not be quoted as if it were.
 
 ## What Phase 7 delivers
 
@@ -291,6 +348,27 @@ debt below.
   reads it yet.
 - No Git or GitHub operations, no HTTP API, no dashboard.
 - No evaluation datasets or published metrics.
+
+## Known technical debt carried out of Phase 8
+
+- **The dataset is small and self-authored.** Ten cases, written by the person
+  who wrote the tool, from templates. Every number it produces is a statement
+  about those ten cases. Real repositories, ideally sourced from actual upstream
+  migrations, are what would make it an estimate of anything.
+- **Two runs is not a variance estimate.** The agent is non-deterministic. Two
+  independent runs agreeing on nine of ten cases is encouraging, and is not a
+  confidence interval. Repeating each case n times is the fix, and multiplies
+  the cost by n.
+- `07-required-field-added` is a case Rewire provably cannot do, kept
+  deliberately (ADR-036). It drags the headline rate down by roughly ten points
+  and should stay there until impact analysis can reason about additions.
+- Hidden tests are hand-written per case, which is the expensive part of adding
+  one and the reason the dataset is ten cases rather than a hundred.
+- The benchmark shares one sandbox image and installs dependencies per case with
+  no pinning, so a rerun months later resolves different package versions. The
+  results file records the image tag but not the resolved versions.
+- Cases run sequentially. Ten cases across two arms is roughly half an hour of
+  wall clock, most of it dependency installation.
 
 ## Known technical debt carried out of Phase 7
 

@@ -17,15 +17,38 @@ from rewire.evals.impact_runner import (
     write_results,
 )
 from rewire.evals.metrics import ConfusionCounts, Metrics, aggregate, compare, evaluate
+from rewire.evals.migration_dataset import (
+    Expectation,
+    MigrationCase,
+    load_migration_case,
+    load_migration_cases,
+)
+from rewire.evals.migration_runner import (
+    DEFAULT_ARMS,
+    ArmConfig,
+    ArmResult,
+    BenchmarkConfig,
+    BenchmarkResult,
+    CaseOutcome,
+    run_benchmark,
+)
 
 __all__ = [
+    "DEFAULT_ARMS",
+    "ArmConfig",
+    "ArmResult",
+    "BenchmarkConfig",
+    "BenchmarkResult",
+    "CaseOutcome",
     "CaseResult",
     "ConfusionCounts",
     "EvaluationConfig",
     "EvaluationResult",
+    "Expectation",
     "ExpectedLocation",
     "ImpactCase",
     "Metrics",
+    "MigrationCase",
     "TargetChange",
     "TargetResult",
     "aggregate",
@@ -34,7 +57,10 @@ __all__ = [
     "evaluate_case",
     "load_case",
     "load_cases",
+    "load_migration_case",
+    "load_migration_cases",
     "render_markdown",
+    "run_benchmark",
     "run_evaluation",
     "write_results",
 ]

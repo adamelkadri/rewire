@@ -18,13 +18,15 @@ reasoning and code generation are genuinely required, and it is never permitted
 to declare its own success: correctness is decided by tests, type checks and
 lints executed in a sandbox.
 
-> **Status: Phase 7 — end to end.** `rewire migrate` runs the whole pipeline
-> and, with `--apply`, writes a *verified* patch into a clean Git working tree.
-> Milestone 2 is complete. What is missing is the number: everything so far is
-> demonstrated on hand-made cases, and the measured success rate across a real
-> dataset nobody tuned against is Phase 8. See
-> [docs/roadmap.md](docs/roadmap.md) for exactly what exists. Nothing in this
-> README describes behaviour that is not implemented.
+> **Status: Phase 8 — measured.** The pipeline runs end to end and is now
+> scored against a benchmark that grades each patch with a contract test the
+> agent never sees. The headline finding is not the success rate: it is that
+> **of the patches Rewire's own sandbox vouched for, roughly a third were
+> wrong** — the agent satisfied the visible tests by weakening them. That gap
+> is only visible because the grading tests are hidden, and it is the number
+> this phase exists to publish. See [docs/roadmap.md](docs/roadmap.md) for
+> exactly what exists. Nothing in this README describes behaviour that is not
+> implemented.
 
 ---
 
@@ -303,7 +305,59 @@ just a negative weight, and the score saturates smoothly instead of piling up at
   import the SDK" as negative when Rewire never worked out *which* SDK would
   score every real call site as unaffected ([ADR-016](docs/decisions.md)).
 
-## Measured accuracy
+## Measured migration success
+
+```bash
+uv run rewire eval migrate
+```
+
+Ten cases across distinct change kinds and repository shapes, run twice — once
+with repair disabled, once with up to three attempts — and graded by a contract
+test **injected after the patch is applied and never present in the repository
+the agent could read**.
+
+| Arm | Correct | Verified | Overclaimed |
+|---|---|---|---|
+| repair off (`--max-attempts 1`) | **4/10** | 4–5 | 1–2 |
+| repair on (`--max-attempts 3`) | **6/10** | 8 | 3 |
+
+Run twice, independently. **Both runs gave 40% → 60%**, and 9 of 10 cases
+reached the same outcome in both; the one that moved flipped between two
+*failure* modes, never into success. (Ranges above are the two runs.)
+
+**Repair moved proven success from 40% to 60%.** But read the last column
+first. Rewire's own sandbox vouched for 8 patches; only 5 were real migrations.
+Three passed the repository's visible tests by changing them:
+
+- it renamed the wrapper's **public Python parameter** to match the wire field,
+  and updated the test — a gratuitous breaking change to the repository's own
+  API;
+- it **deleted the logic** it could not migrate, replacing both the function
+  body and the assertion with a comment;
+- it **dropped the field entirely** and changed the test to assert its absence.
+
+None of these is detectable by inspecting the diff, because a genuine migration
+also updates tests — that is most of what a migration *is*. The only way to
+separate them is to grade against something the agent cannot edit
+([ADR-034](docs/decisions.md)).
+
+That is why the benchmark never reports a success rate without the overclaim
+rate beside it, and why `07-required-field-added` — a case Rewire provably
+cannot do, because impact analysis matches names that appear in the code and
+this change requires sending a field that appears nowhere — stays in the
+dataset rather than being quietly removed ([ADR-036](docs/decisions.md)).
+
+The dataset is itself tested: every case's visible tests must pass before
+migration and every case's hidden tests must **fail** before it. A hidden test
+that already passes grades nothing and would silently award a success to a patch
+that changed nothing ([ADR-035](docs/decisions.md)).
+
+**Ten hand-written cases, one model, two runs.** That is a statement about ten
+cases, not an estimate of real-world performance. Full results in
+[`evals/results/migration.md`](evals/results/migration.md), with the first run
+kept alongside as `migration-run-1.json`.
+
+## Measured impact-analysis accuracy
 
 Impact analysis is scored against labelled ground truth checked into
 [`evals/datasets/impact/`](evals/datasets/impact/):

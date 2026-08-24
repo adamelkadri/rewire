@@ -1,0 +1,12 @@
+{
+  "case_id": "07-required-field-added",
+  "description": "A previously optional field becomes required.",
+  "expectation": "migrate",
+  "packages": [],
+  "tags": [
+    "change:required-added",
+    "shape:single-module",
+    "limitation:nothing-to-match"
+  ],
+  "rationale": "A request that omits the now-required field is rejected, so the migration has to start sending it. Kept deliberately as a known limitation: impact analysis locates affected code by matching names that appear in it, and a field the repository has never sent appears nowhere, so there is no anchor to find. Rewire is expected to fail this case today; it is in the dataset so that stops being invisible."
+}

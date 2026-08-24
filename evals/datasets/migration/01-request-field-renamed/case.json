@@ -1,0 +1,11 @@
+{
+  "case_id": "01-request-field-renamed",
+  "description": "A request field is renamed; one call site builds the payload as a dict.",
+  "expectation": "migrate",
+  "packages": [],
+  "tags": [
+    "change:field-renamed",
+    "shape:single-module"
+  ],
+  "rationale": "The old key no longer exists in the request schema, so a payload using it would be rejected by the server."
+}

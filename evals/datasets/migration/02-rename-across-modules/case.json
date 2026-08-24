@@ -1,0 +1,12 @@
+{
+  "case_id": "02-rename-across-modules",
+  "description": "The same renamed field is used in three modules, one of them not obviously an API call.",
+  "expectation": "migrate",
+  "packages": [],
+  "tags": [
+    "change:field-renamed",
+    "shape:multi-module",
+    "difficulty:spread"
+  ],
+  "rationale": "Every construction and every read of the old key has to move, including the helper that post-processes an already-built payload."
+}

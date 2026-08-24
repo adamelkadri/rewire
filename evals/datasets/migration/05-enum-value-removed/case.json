@@ -1,0 +1,11 @@
+{
+  "case_id": "05-enum-value-removed",
+  "description": "An accepted enum value is removed and replaced by a new one.",
+  "expectation": "migrate",
+  "packages": [],
+  "tags": [
+    "change:enum-removed",
+    "shape:single-module"
+  ],
+  "rationale": "The literal string is no longer accepted by the server, so any code that sends it has to send the replacement instead."
+}

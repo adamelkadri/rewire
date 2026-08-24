@@ -1,0 +1,11 @@
+{
+  "case_id": "06-raw-http-client",
+  "description": "No SDK: the request is built and posted with a hand-rolled HTTP helper.",
+  "expectation": "migrate",
+  "packages": [],
+  "tags": [
+    "change:field-renamed",
+    "shape:raw-http"
+  ],
+  "rationale": "The field name appears only inside a dict literal passed to a generic post helper, so nothing about the call site names the API."
+}

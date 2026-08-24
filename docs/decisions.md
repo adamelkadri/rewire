@@ -826,3 +826,83 @@ would hide a real problem, and Phase 8's benchmark has to measure exactly that.
 **Cost.** A caller must know which statuses are successes rather than checking a
 boolean, which is why `is_success` exists on the enum rather than being
 reimplemented at each call site.
+
+---
+
+## ADR-034 — The benchmark grades with tests the agent never sees
+
+**Decision.** Every case ships a `hidden/` directory of contract tests. They are
+injected into the sandbox copy *after* the patch is applied and never exist in
+the repository the agent can read. A case succeeds when Rewire verified the
+patch **and** the hidden test accepted it.
+
+**Why.** Rewire grades a patch by running the repository's own test suite. An
+agent handed that suite has an obvious shortcut: edit the failing assertion.
+
+The shortcut cannot be forbidden by rule, because a genuine migration *has* to
+update tests that call the old API — that is most of what a migration is. Nor
+can it be detected by inspecting the diff, because "updated the test to the new
+field name" and "weakened the test until it passed" produce the same shape of
+change. Any attempt to police it with a heuristic would either block correct
+migrations or miss the cheat.
+
+So the benchmark does not try to police it. It moves the goalposts somewhere the
+agent cannot reach. A patch that satisfies a contract test written by the dataset
+author and never present in the workspace has migrated the code; a patch that
+only edited what it could see has not.
+
+This is also what makes the *overclaim rate* measurable, which is the number
+that matters most. Verified-rate is Rewire grading itself. Correct-rate is the
+world grading Rewire. The gap between them is how often Rewire's verification
+was fooled, and no self-graded benchmark can report it at all.
+
+**Cost.** Every case needs a hand-written contract test, which is the expensive
+part of adding one. A case shipping none grades to "ungraded" rather than to
+success — it cannot inflate a rate — and the report names those cases explicitly.
+
+---
+
+## ADR-035 — Every case's hidden test must fail before migration
+
+**Decision.** A test in the suite copies each case, injects its hidden tests,
+runs them, and asserts they **fail** on the unmigrated repository. For the no-op
+case it asserts the mirror image: they pass untouched.
+
+**Why.** A hidden test that already passes grades nothing. It is the benchmark
+equivalent of a test with no assertion, and it does not fail loudly — it quietly
+awards a success to every patch, including a patch that changed nothing. One
+such case in ten would move a headline number by ten points in the flattering
+direction.
+
+The same test also asserts the *visible* tests pass before migration, because a
+case with a red baseline can never reach `VERIFIED` and would silently score
+zero for a reason that has nothing to do with the agent.
+
+These properties are invisible when reading a case. They can only be established
+by running it, which is why they are a test and not a convention.
+
+**Cost.** The dataset test suite runs pytest once per case in a subprocess.
+It is a few seconds, and it is the thing standing between the published number
+and quiet nonsense.
+
+---
+
+## ADR-036 — A case Rewire cannot do stays in the dataset
+
+**Decision.** `07-required-field-added` requires the repository to start sending
+a field it has never sent. Impact analysis locates affected code by matching
+names that appear in it, so there is nothing to match and Rewire fails the case.
+It is tagged `limitation:nothing-to-match` and kept.
+
+**Why.** A benchmark containing only the cases a tool handles measures nothing
+except the author's willingness to delete inconvenient cases. The number it
+produces is unfalsifiable, and worse, it hides a whole class of change from
+everyone including the author.
+
+Keeping it makes the limitation a line in a report rather than an unstated
+assumption. It also gives the next phase something concrete: when impact analysis
+learns to reason about additions rather than only about names it can find, this
+case is how anyone will know.
+
+**Cost.** The published success rate is lower than it would otherwise be, by
+roughly one case in ten. That is the correct price.

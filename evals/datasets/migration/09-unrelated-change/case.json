@@ -1,0 +1,11 @@
+{
+  "case_id": "09-unrelated-change",
+  "description": "The specification changes an endpoint this repository never calls.",
+  "expectation": "no_op",
+  "packages": [],
+  "tags": [
+    "change:unrelated",
+    "shape:negative"
+  ],
+  "rationale": "Nothing in this repository touches the changed endpoint. Producing a patch here is a false positive, and is the failure mode this case exists to catch."
+}

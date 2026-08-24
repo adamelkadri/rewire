@@ -17,11 +17,11 @@ from __future__ import annotations
 
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
 from rewire.agents.patch import CandidatePatch, assert_patch_applies_to, write_patch
-from rewire.core.errors import PatchError
+from rewire.core.errors import PatchError, SandboxError
 from rewire.core.logging import get_logger
 from rewire.sandbox.models import (
     CheckKind,
@@ -201,12 +201,42 @@ def _docker_factory(root: Path, request: VerificationRequest) -> SandboxRunner:
     return runner
 
 
+def _write_overlay(root: Path, overlay: Mapping[str, str]) -> tuple[str, ...]:
+    """Write files into the staged copy that the agent never saw.
+
+    Written after the patch and after the baseline run, so they take no part in
+    establishing what the repository did before. Their entire purpose is to be
+    unavailable to the thing being measured: a test the agent could read is a
+    test the agent can satisfy by editing it.
+
+    Raises:
+        SandboxError: A path escapes the staged copy, or cannot be written.
+    """
+    # Both sides are resolved before comparison: a temporary directory is itself
+    # a symlink on macOS, so resolving only the target makes every legitimate
+    # path look like an escape.
+    base = root.resolve()
+    written: list[str] = []
+    for relative, content in sorted(overlay.items()):
+        target = (base / relative).resolve()
+        if target != base and base not in target.parents:
+            raise SandboxError("overlay path escapes the staged repository", path=relative)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            raise SandboxError(f"could not write overlay file: {exc}", path=relative) from exc
+        written.append(relative)
+    return tuple(written)
+
+
 def verify(
     repository: Path | str,
     patch: CandidatePatch | None = None,
     *,
     request: VerificationRequest | None = None,
     runner_factory: RunnerFactory | None = None,
+    overlay: Mapping[str, str] | None = None,
 ) -> VerificationReport:
     """Measure a repository, apply a patch, measure it again, and compare.
 
@@ -219,6 +249,9 @@ def verify(
         patch: The candidate to apply inside the sandbox copy.
         request: Isolation and resource policy.
         runner_factory: Builds the execution backend; defaults to Docker.
+        overlay: Extra files written into the staged copy after the patch and
+            after the baseline run. Used by the benchmark to grade a patch with
+            tests the agent could not read, and therefore could not edit.
 
     Raises:
         SandboxError: Staging failed, or the sandbox could not run.
@@ -289,6 +322,11 @@ def verify(
                     started=started,
                 )
 
+            if overlay:
+                _write_overlay(staged.root, overlay)
+                # A repository with no tests of its own gains one here, so the
+                # plan is recomputed rather than reused.
+                plan = plan_checks(staged.root)
             patched = _run_checks(runner, plan, settings.check_timeout_seconds)
             verdict, reason, regressions, pre_existing = decide(baseline, patched, install=install)
             return _report(

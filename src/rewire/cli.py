@@ -39,9 +39,18 @@ from rewire.analyzers import (
 from rewire.changes import ApiChange, ChangeReport, Severity, diff_specs, load_spec
 from rewire.core.config import LogLevel, Settings, get_settings
 from rewire.core.doctor import CheckStatus, DoctorReport, run_checks
-from rewire.core.errors import RewireError
+from rewire.core.errors import ConfigurationError, RewireError
 from rewire.core.logging import configure_from_settings
 from rewire.evals import render_markdown, run_evaluation, write_results
+from rewire.evals.migration_dataset import load_migration_cases
+from rewire.evals.migration_runner import (
+    DEFAULT_ARMS,
+    BenchmarkConfig,
+    BenchmarkResult,
+    run_benchmark,
+)
+from rewire.evals.migration_runner import render_markdown as render_benchmark
+from rewire.evals.migration_runner import write_results as write_benchmark
 from rewire.impact import (
     DEFAULT_MIN_CONFIDENCE,
     ImpactReport,
@@ -822,6 +831,115 @@ def verify_repo(
     request = _verification_request(settings, image=image, timeout=timeout)
     report = verify(repo, request=request.model_copy(update={"install": not no_install}))
     _render_verification(report)
+
+
+def _render_benchmark(result: BenchmarkResult) -> None:
+    """Print the headline table: what Rewire claimed, and what was true."""
+    table = Table(title="Migration benchmark", title_justify="left")
+    table.add_column("Arm")
+    table.add_column("Correct", justify="right")
+    table.add_column("Rate", justify="right")
+    table.add_column("Claimed", justify="right")
+    table.add_column("Overclaimed", justify="right")
+    table.add_column("Repaired", justify="right")
+    table.add_column("Cost", justify="right")
+
+    for arm in result.arms:
+        cost = f"${arm.total_cost_usd:.2f}" if arm.total_cost_usd is not None else "?"
+        over = (
+            f"[red]{arm.overclaimed}[/red]"
+            if arm.overclaimed
+            else f"[green]{arm.overclaimed}[/green]"
+        )
+        table.add_row(
+            arm.arm,
+            f"{arm.succeeded}/{arm.total}",
+            f"{arm.success_rate:.0%}",
+            str(arm.claimed),
+            over,
+            str(arm.repaired),
+            cost,
+        )
+    console.print()
+    console.print(table)
+    console.print(
+        "[dim]Correct is judged by a contract test injected after the patch and never "
+        "visible to the agent. Overclaimed is where Rewire vouched for a patch that "
+        "test rejected.[/dim]"
+    )
+    if result.ungraded_cases:
+        console.print(
+            f"[yellow]{len(result.ungraded_cases)} case(s) ship no hidden test and are "
+            "graded on Rewire's own word.[/yellow]"
+        )
+
+
+@eval_app.command("migrate")
+def eval_migrate(
+    dataset: Annotated[
+        Path,
+        typer.Option("--dataset", exists=True, file_okay=False, help="Benchmark dataset root."),
+    ] = Path("evals/datasets/migration"),
+    case: Annotated[
+        list[str] | None, typer.Option("--case", help="Run only these case identifiers.")
+    ] = None,
+    limit: Annotated[
+        int, typer.Option("--limit", min=0, help="Stop after this many cases per arm.")
+    ] = 0,
+    arm: Annotated[
+        list[str] | None, typer.Option("--arm", help="Run only these arms (no-repair, repair).")
+    ] = None,
+    write: Annotated[
+        bool, typer.Option("--write/--no-write", help="Write results under evals/results/.")
+    ] = True,
+    results_dir: Annotated[
+        Path, typer.Option("--results-dir", help="Where to write results.")
+    ] = Path("evals/results"),
+) -> None:
+    """Run the migration benchmark and publish what it measured.
+
+    Every patch is graded twice: once by Rewire's own sandbox, and once by a
+    contract test injected after the patch is applied that the agent never saw.
+    The second is the number that means something; the gap between them is how
+    often Rewire's verification was fooled.
+
+    This costs real model calls and real container time. Use --limit or --case
+    to run a slice.
+    """
+    settings = get_settings()
+    provider = build_provider(settings.llm)
+    cases = load_migration_cases(dataset)
+
+    arms = tuple(a for a in DEFAULT_ARMS if not arm or a.name in arm)
+    if not arms:
+        raise ConfigurationError(
+            "no matching arm", requested=list(arm or ()), available=[a.name for a in DEFAULT_ARMS]
+        )
+
+    settings.ensure_data_dirs()
+    result = run_benchmark(
+        BenchmarkConfig(
+            dataset=dataset,
+            arms=arms,
+            only=tuple(case or ()),
+            limit=limit,
+            verification=_verification_request(settings, image=None, timeout=None),
+            results_dir=results_dir,
+            # --no-write means "leave evals/results alone", which has to include
+            # the crash-recovery partial or the flag quietly lies.
+            incremental=write,
+        ),
+        cases,
+        provider=provider,
+        settings=settings,
+    )
+
+    _render_benchmark(result)
+    if write:
+        json_path, markdown_path = write_benchmark(result, results_dir)
+        console.print(f"[dim]wrote {escape(str(json_path))} and {escape(str(markdown_path))}[/dim]")
+    else:
+        console.print(render_benchmark(result))
 
 
 @app.command()

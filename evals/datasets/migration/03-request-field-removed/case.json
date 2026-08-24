@@ -1,0 +1,11 @@
+{
+  "case_id": "03-request-field-removed",
+  "description": "A request field is removed outright, with no replacement.",
+  "expectation": "migrate",
+  "packages": [],
+  "tags": [
+    "change:field-removed",
+    "shape:single-module"
+  ],
+  "rationale": "The field is gone from the schema and has no successor, so the correct migration is to stop sending it rather than to rename it."
+}

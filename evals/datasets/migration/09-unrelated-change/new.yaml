@@ -1,0 +1,28 @@
+openapi: "3.0.3"
+info: {title: Example API, version: "2"}
+paths:
+  /v1/chat/completions:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                model: {type: string}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+  /v1/audio/speech:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                voice_id: {type: string}
+      responses:
+        '200': {description: OK}

@@ -1,0 +1,22 @@
+openapi: "3.0.3"
+info: {title: Example API, version: "2"}
+paths:
+  /v1/chat/completions:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                model: {type: string}
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                    stop_reason: {type: string}
+                    usage: {type: object}

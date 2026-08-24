@@ -1,0 +1,12 @@
+{
+  "case_id": "04-response-field-renamed",
+  "description": "A response field is renamed; the code reads it rather than writing it.",
+  "expectation": "migrate",
+  "packages": [],
+  "tags": [
+    "change:response-renamed",
+    "shape:single-module",
+    "difficulty:direction"
+  ],
+  "rationale": "A response field is read, not sent. The migration has to change the reader, and must not touch the request payload that happens to share vocabulary."
+}

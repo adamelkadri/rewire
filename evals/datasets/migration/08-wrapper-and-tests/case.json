@@ -1,0 +1,12 @@
+{
+  "case_id": "08-wrapper-and-tests",
+  "description": "A wrapper function whose own parameter shares the API field's name.",
+  "expectation": "migrate",
+  "packages": [],
+  "tags": [
+    "change:field-renamed",
+    "shape:wrapper",
+    "difficulty:name-collision"
+  ],
+  "rationale": "The wire field is renamed but the wrapper's Python parameter is not part of the API. Renaming the parameter would be a gratuitous public-API break."
+}
