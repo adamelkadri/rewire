@@ -325,7 +325,7 @@ That is visible in the analysis output rather than silently wrong.
 
 ---
 
-## ADR-014 — Impact confidence is accumulated in log-odds
+## ADR-018 — Impact confidence is accumulated in log-odds
 
 **Decision.** Each piece of evidence about a candidate location contributes a
 weight in log-odds; the weights are summed and passed through a sigmoid to give
@@ -348,7 +348,7 @@ trusted, but they are guesses until Phase 8 fits them to labelled data.
 
 ---
 
-## ADR-015 — Impact direction must agree with how the code uses the name
+## ADR-019 — Impact direction must agree with how the code uses the name
 
 **Decision.** A candidate is scored against whether the direction the field
 travels agrees with the way the code writes the name. Request fields are
@@ -373,7 +373,7 @@ them and those candidates rest on weaker evidence.
 
 ---
 
-## ADR-016 — Absence of evidence is not evidence of absence
+## ADR-020 — Absence of evidence is not evidence of absence
 
 **Decision.** When no package can be attributed to a specification, package-based
 signals are omitted entirely rather than being counted as negative. A negative
@@ -395,7 +395,7 @@ syntactic evidence alone. `--package` exists for exactly that case.
 
 ---
 
-## ADR-017 — Candidates are proposed generously and filtered by one model
+## ADR-021 — Candidates are proposed generously and filtered by one model
 
 **Decision.** Several independent strategies propose candidate locations —
 field-name references, endpoint-path literals — without judging them. All
@@ -414,7 +414,7 @@ simplicity is worth more than the cycles.
 
 ---
 
-## ADR-018 — Every benchmark case is labelled with reasons, and one expects nothing
+## ADR-022 — Every benchmark case is labelled with reasons, and one expects nothing
 
 **Decision.** Ground truth lives in `evals/datasets/impact/`, version controlled
 alongside the code. Each expected location carries a written reason. The dataset
@@ -437,7 +437,7 @@ cases considered so far, and nothing stronger.
 
 ---
 
-## ADR-019 — Edits are exact string replacements, not model-authored diffs
+## ADR-023 — Edits are exact string replacements, not model-authored diffs
 
 **Decision.** The agent proposes edits as `(file, old_text, new_text)`. Rewire
 computes the unified diff itself. `old_text` must occur exactly once; ambiguity
@@ -460,7 +460,7 @@ worth paying for edits that are either right or loudly wrong.
 
 ---
 
-## ADR-020 — The agent's authority is bounded by its tools, not its instructions
+## ADR-024 — The agent's authority is bounded by its tools, not its instructions
 
 **Decision.** Repository content never enters the system prompt; it arrives only
 as tool results wrapped in an explicit untrusted-data envelope. The tool surface
@@ -484,7 +484,7 @@ is the intended trade.
 
 ---
 
-## ADR-021 — The terminal success state is called CANDIDATE
+## ADR-025 — The terminal success state is called CANDIDATE
 
 **Decision.** The agent's best possible outcome is `AgentState.CANDIDATE`, its
 output is a `CandidatePatch`, and `MigrationResult.verified` returns `False`
@@ -507,7 +507,7 @@ against it today cannot silently change meaning later.
 
 ---
 
-## ADR-022 — A scripted provider, so the loop is testable without a model
+## ADR-026 — A scripted provider, so the loop is testable without a model
 
 **Decision.** `ScriptedProvider` replays a fixed sequence of responses and
 records every request it received. Every agent test uses it; no test in the
@@ -529,7 +529,7 @@ benchmark suite and real models, which is Phase 8.
 
 ---
 
-## ADR-023 — Every check runs twice: baseline, then patched
+## ADR-027 — Every check runs twice: baseline, then patched
 
 **Decision.** Verification measures the repository *before* applying the patch
 and again afterwards, in the same container image on the same machine. A check
@@ -558,7 +558,7 @@ is something Rewire records.
 
 ---
 
-## ADR-024 — "Not checked" and "not passing" are different results
+## ADR-028 — "Not checked" and "not passing" are different results
 
 **Decision.** A check has five statuses: `PASSED`, `FAILED`, `TIMED_OUT`,
 `UNAVAILABLE` (the tool is not in the image) and `SKIPPED` (the repository does
@@ -586,7 +586,7 @@ right default, but it will annoy someone whose repository has no tests.
 
 ---
 
-## ADR-025 — The sandbox is the security boundary, and it is tested by attack
+## ADR-029 — The sandbox is the security boundary, and it is tested by attack
 
 **Decision.** Checks run in a container with `--network none`, all capabilities
 dropped, `no-new-privileges`, a read-only root filesystem, a size-capped tmpfs,
@@ -614,7 +614,7 @@ staged repository rather than in `/usr/local`.
 
 ---
 
-## ADR-026 — Installation is the one step permitted the network
+## ADR-030 — Installation is the one step permitted the network
 
 **Decision.** Dependency installation runs with `--network bridge`; every check
 runs with `--network none`. Installation is reported as its own step in the
@@ -641,7 +641,7 @@ to be reproducible, and that is recorded as debt rather than solved here.
 
 ---
 
-## ADR-027 — Retry only when the sandbox found a mistake
+## ADR-031 — Retry only when the sandbox found a mistake
 
 **Decision.** The repair loop retries on `REGRESSED` and `ERRORED` only. An
 `INCONCLUSIVE` verdict ends the run immediately. It also stops early when the
@@ -664,13 +664,13 @@ actually did.
 
 **Cost.** A repository with a flaky test suite can produce `REGRESSED` on a
 failure the patch did not cause, and the agent will be asked to fix it. The
-baseline comparison (ADR-023) removes the deterministic cases but not
+baseline comparison (ADR-027) removes the deterministic cases but not
 non-determinism; Phase 8 needs to detect flakiness by re-running a failing
 baseline before this becomes a benchmark problem.
 
 ---
 
-## ADR-028 — Every attempt is a complete patch from the original files
+## ADR-032 — Every attempt is a complete patch from the original files
 
 **Decision.** Each attempt gets a fresh `PatchBuilder` and works against the
 unmodified repository. The previous attempt's diff is supplied as information,
@@ -698,7 +698,7 @@ first attempt and 10 510 on the second.
 
 ---
 
-## ADR-029 — Sandbox output reaches the agent as untrusted data
+## ADR-033 — Sandbox output reaches the agent as untrusted data
 
 **Decision.** A failing check's output, and the previous attempt's diff, are
 wrapped in the same `<<<REPOSITORY_CONTENT untrusted=true>>>` envelope used for
@@ -719,13 +719,13 @@ would otherwise fill the context window, which is both a cost problem and a way
 to push the system prompt's instructions out of a model's effective attention.
 
 **Cost.** A failure whose cause is past the truncation point is invisible to the
-agent. The middle-out truncation used for reports (ADR-024) is not applied here
+agent. The middle-out truncation used for reports (ADR-028) is not applied here
 because pytest puts the useful part first; that is a judgement about pytest, and
 it will be wrong for some other tool.
 
 ---
 
-## ADR-030 — Orchestration lives in `services`, not in `agents`
+## ADR-034 — Orchestration lives in `services`, not in `agents`
 
 **Decision.** The repair loop is `rewire.services.repair`, not
 `rewire.agents.repair`.
@@ -750,7 +750,7 @@ be learned, rather than everything agent-shaped being under `agents`.
 
 ---
 
-## ADR-031 — An unverified patch is never written, and there is no flag for it
+## ADR-035 — An unverified patch is never written, and there is no flag for it
 
 **Decision.** `rewire migrate --apply` writes only a patch the sandbox confirmed.
 There is no `--force`, no `--yes`, and no confirmation prompt that would let a
@@ -777,7 +777,7 @@ treat "cannot be verified here" as a first-class state rather than a failure.
 
 ---
 
-## ADR-032 — Nothing is written into a dirty working tree
+## ADR-036 — Nothing is written into a dirty working tree
 
 **Decision.** `--apply` requires a clean Git working tree. `--allow-dirty`
 overrides it; not being in a Git repository at all is a refusal with no
@@ -805,7 +805,7 @@ becomes a stash-and-branch operation instead of a refusal.
 
 ---
 
-## ADR-033 — "Nothing was affected" is a success
+## ADR-037 — "Nothing was affected" is a success
 
 **Decision.** `MigrationStatus` has seven members and four of them are
 successes, including `NO_BREAKING_CHANGES` and `NO_AFFECTED_CODE`. Only
@@ -829,7 +829,7 @@ reimplemented at each call site.
 
 ---
 
-## ADR-034 — The benchmark grades with tests the agent never sees
+## ADR-038 — The benchmark grades with tests the agent never sees
 
 **Decision.** Every case ships a `hidden/` directory of contract tests. They are
 injected into the sandbox copy *after* the patch is applied and never exist in
@@ -862,7 +862,7 @@ success — it cannot inflate a rate — and the report names those cases explic
 
 ---
 
-## ADR-035 — Every case's hidden test must fail before migration
+## ADR-039 — Every case's hidden test must fail before migration
 
 **Decision.** A test in the suite copies each case, injects its hidden tests,
 runs them, and asserts they **fail** on the unmigrated repository. For the no-op
@@ -887,7 +887,7 @@ and quiet nonsense.
 
 ---
 
-## ADR-036 — A case Rewire cannot do stays in the dataset
+## ADR-040 — A case Rewire cannot do stays in the dataset
 
 **Decision.** `07-required-field-added` requires the repository to start sending
 a field it has never sent. Impact analysis locates affected code by matching
@@ -909,7 +909,7 @@ roughly one case in ten. That is the correct price.
 
 ---
 
-## ADR-037 — Every comparison reports a confidence interval and a significance test
+## ADR-041 — Every comparison reports a confidence interval and a significance test
 
 **Decision.** The model comparison reports a 95% Wilson interval on every rate,
 and compares each pair of models with an exact paired sign test over the cases
@@ -938,7 +938,7 @@ be a better sentence and an unsupported one.
 
 ---
 
-## ADR-038 — A model with no credential is reported, not dropped
+## ADR-042 — A model with no credential is reported, not dropped
 
 **Decision.** `rewire eval models` records a requested model whose provider has
 no API key as a skipped run carrying the reason and the environment variable that
@@ -961,7 +961,7 @@ command line requested. Both are accurate.
 
 ---
 
-## ADR-039 — Models are compared by agreement structure, not only by rank
+## ADR-043 — Models are compared by agreement structure, not only by rank
 
 **Decision.** The comparison reports which cases *no* model solved and which
 cases *every* model solved, separately from the per-model rates.
@@ -985,7 +985,7 @@ collected.
 
 ---
 
-## ADR-040 — The ablation withholds impact findings through every channel
+## ADR-044 — The ablation withholds impact findings through every channel
 
 **Decision.** `include_impact_locations=False` withholds the ranked affected
 locations from **both** the opening task prompt and the `inspect_api_change`
@@ -1016,7 +1016,7 @@ looked sufficient.
 
 ---
 
-## ADR-041 — The impact ablation also removes the gate, in its own arm
+## ADR-045 — The impact ablation also removes the gate, in its own arm
 
 **Decision.** Two arms withhold the locations. `no-impact-locations` keeps the
 pipeline's rule that a run stops when impact analysis finds no affected code;
@@ -1035,7 +1035,7 @@ ranked locations, or the reverse.
 
 ---
 
-## ADR-042 — Model comparison and ablation share one reporting implementation
+## ADR-046 — Model comparison and ablation share one reporting implementation
 
 **Decision.** `evals/comparison.py` holds the rates table, the Wilson intervals,
 the paired significance section, the agreement structure and the per-case matrix,
@@ -1057,7 +1057,7 @@ parameter, which is slightly more awkward than prose written for one caller.
 
 ---
 
-## ADR-043 — A patch that weakens the tests is not verified
+## ADR-047 — A patch that weakens the tests is not verified
 
 **Decision.** A new verdict, `WEAKENED`, sits beside `VERIFIED`. The suite passed,
 and it passed partly because the patch changed what it checks. `is_verified` is
@@ -1081,7 +1081,7 @@ is the correct default for an automated writer and it is a real restriction.
 
 ---
 
-## ADR-044 — The weakening check counts, it does not read
+## ADR-048 — The weakening check counts, it does not read
 
 **Decision.** Nothing in the test-weakening check looks at what an assertion
 says. It counts test functions and the assertions inside them, and reports only
@@ -1098,16 +1098,16 @@ Counting has exactly the property needed: a rename leaves every count untouched,
 and a deletion cannot hide from it.
 
 **Cost.** Whole classes of cheat are invisible to it, and the benchmark showed
-which — see ADR-045.
+which — see ADR-049.
 
 ---
 
-## ADR-045 — A patch must not change the repository's own public interface
+## ADR-049 — A patch must not change the repository's own public interface
 
 **Decision.** A patch that renames a public function's parameters, or removes a
 public callable, is `WEAKENED`. Private helpers are exempt.
 
-**Why.** This check exists because the first measurement of ADR-044 failed. The
+**Why.** This check exists because the first measurement of ADR-048 failed. The
 counting check fired once across thirty-five verdicts and the overclaim rate did
 not move, so the offending patches were pulled out of the traces. None of them
 had removed an assertion. One had renamed the repository's *own* public
@@ -1129,7 +1129,7 @@ can still apply the diff by hand; Rewire will not do it for them.
 
 ---
 
-## ADR-046 — Two cheats this cannot catch, named rather than papered over
+## ADR-050 — Two cheats this cannot catch, named rather than papered over
 
 **Decision.** Two of the observed cheat classes are not detected, and are
 recorded here rather than left as an implied capability.
@@ -1156,7 +1156,7 @@ written down.
 
 ---
 
-## ADR-047 — Rewire has no ability to merge, and that is structural
+## ADR-051 — Rewire has no ability to merge, and that is structural
 
 **Decision.** :mod:`rewire.gitio.github` contains one write: `gh pr create`.
 There is no merge function, no approve, no auto-merge flag, and no review
@@ -1180,7 +1180,7 @@ that decision: with the person who owns the repository.
 
 ---
 
-## ADR-048 — Only the patch's own files are staged
+## ADR-052 — Only the patch's own files are staged
 
 **Decision.** `commit()` takes an explicit file list and runs `git add -- <paths>`.
 `git add -A` and `git commit -a` appear nowhere, asserted by a test over the
@@ -1201,7 +1201,7 @@ express that, because staging by path does not cover removals. Recorded as debt.
 
 ---
 
-## ADR-049 — Commit hooks are bypassed, for correctness rather than convenience
+## ADR-053 — Commit hooks are bypassed, for correctness rather than convenience
 
 **Decision.** Rewire commits with `--no-verify`.
 
@@ -1220,7 +1220,7 @@ unformatted commit. Both surface in CI on the pull request.
 
 ---
 
-## ADR-050 — The pull request describes what its evidence does not establish
+## ADR-054 — The pull request describes what its evidence does not establish
 
 **Decision.** Every generated description carries a "What this does not
 establish" section naming the limits of the checks, the specific cheat class the
@@ -1239,3 +1239,131 @@ never open is not a disclosure.
 
 **Cost.** The description is longer than a summary line, and it argues against
 its own change. That is the intent.
+
+---
+
+## ADR-055 — A baseline is the version the code targets, not the last one downloaded
+
+**Decision.** Each watch stores a *baseline specification* — the full document,
+not a digest — and it advances under exactly two conditions: the delta from it
+was proven to contain nothing that can break a caller, or a person ran
+`rewire watch accept`. It does not advance because a patch verified, and it does
+not advance because a pull request opened.
+
+**Why.** The baseline is the "old" side of every diff Rewire feeds to impact
+analysis and to the agent. If it means "the last thing we downloaded", then a
+watch that polls hourly diffs an arbitrary polling instant against another, and
+the agent is asked to migrate code from a version the code was never on. If it
+means "what this repository's code targets", every diff is the one that matters.
+
+That definition then decides when it may move. A verified patch is evidence
+about a proposal; the working tree still holds the old code. An open pull request
+is a proposal about someone else's repository, and recording it as fact would
+make Rewire's own state a claim about a merge that has not happened. The only
+moves that are true are the ones above: across a delta proven harmless, or when
+a person says the code has caught up.
+
+Storing the document rather than a hash follows from the same place. A hash
+answers "did it change", and the next question is always "changed how".
+
+**Cost.** A merged pull request does not advance the baseline on its own, so
+`rewire watch accept` is a manual step after every migration, and until it is run
+the same finding is re-reported. Detecting a merge would mean polling the pull
+request's state, which is a capability Rewire does not have. Recorded as debt.
+
+---
+
+## ADR-056 — Three cheap questions before the expensive one
+
+**Decision.** A check asks, in order: did the server return 304; is the byte
+digest the same as the baseline's; is the digest of the *normalised*
+specification the same. Only what survives all three is diffed, and only a diff
+containing a breaking or potentially-breaking change may reach a model.
+
+**Why.** Cost and noise, which here are the same problem. A monitor on an hourly
+schedule that downloaded and diffed every time would be rate-limited by any
+public API worth watching, and one that treated every byte change as an event
+would page a person every time a vendor regenerated their document with a
+different key order. The semantic digest is the interesting one: it is taken over
+the parsed and normalised model, so indentation, key order, comments and the
+JSON/YAML choice all fall out, and what survives is a real difference.
+
+The ordering is by cost. A 304 costs one request and no body. A byte digest costs
+a download. A semantic digest costs a parse. A diff costs a parse of both sides.
+A model costs money.
+
+**Cost.** Two digests are stored per watch instead of one, and a specification
+whose normalisation loses a distinction Rewire's differ would have caught would
+be dismissed as a reformat. That is the same normalisation the differ itself
+uses, so the two cannot disagree.
+
+---
+
+## ADR-057 — A version is acted on once, and a failure counts as acting
+
+**Decision.** When a watch runs a migration, the result is recorded against the
+digest that provoked it — successes, refusals and failures alike. A later check
+that sees the same digest reports `already_acted` and does nothing. `--retry` is
+how a person asks again.
+
+**Why.** This is what makes an unattended schedule affordable. Without it, a
+watch whose migration succeeded would open a fresh pull request every hour for a
+change that already has one, and a watch whose migration failed would spend real
+money every hour reaching the same wrong answer. Recording only successes would
+fix the first and leave the second, which is the more expensive of the two.
+
+It also bounds the flapping case. A vendor oscillating between two documents
+produces two digests, both of which are recorded after one attempt each.
+
+**Cost.** A transient failure — Docker down, a rate limit — is remembered as
+though it were a verdict, and the watch will not try again on its own. That is
+deliberate: retrying automatically is exactly the behaviour that turns one
+failure into a bill. The consequence is that `--retry` has to be run by hand,
+and nothing surfaces "these watches are stuck" except reading `watch list`.
+
+---
+
+## ADR-058 — There is no daemon
+
+**Decision.** `rewire watch check` performs one pass and exits, with the answer
+in the exit code: `0` nothing needs anyone, `1` a check could not complete, `2`
+something is waiting for a person. `--interval` is a foreground polling loop,
+documented as a convenience for a demonstration or a container, not as a
+supervisor.
+
+**Why.** Scheduling, restart-on-failure, log rotation, alerting on non-zero exit
+and not-running-two-copies are solved by cron, systemd, launchd and every CI
+runner. A daemon inside Rewire would reimplement them worse, and would be the
+component that has to survive a reboot.
+
+Three exit codes rather than two because the distinction matters to whoever is
+paged: "I could not look" and "I looked, and something needs you" call for
+different responses, and a failure outranks a finding.
+
+**Cost.** Rewire cannot tell you what it missed while it was not running, and
+there is nothing to `systemctl status`. `--interval` blurs this slightly, which
+is why it is bounded by `--passes` and described as what it is.
+
+---
+
+## ADR-059 — The monitor authenticates nothing, and refuses plain HTTP
+
+**Decision.** `rewire.watch.source` sends no credential of any kind: no
+`Authorization` header, no token parameter, no netrc, no cookie jar. Plain HTTP
+is refused, and the check is repeated after the redirect chain so an `https` URL
+that redirects to `http` is refused too.
+
+**Why.** A monitor polls a URL unattended and then feeds the result to a model
+that writes code and opens a pull request. Two things follow. Trusting an
+unauthenticated document over an unauthenticated channel means trusting whoever
+sits between Rewire and the server with the contents of a patch. And a component
+that holds no credential cannot leak one, however the URL is chosen — including
+by an attacker who can edit `watches.json`.
+
+The body is bounded while it is read rather than after, in chunks against a
+ceiling. The declared `Content-Length` is checked first, but only as a free
+refusal: it is a claim, not a measurement.
+
+**Cost.** A specification behind a credential cannot be watched, which rules out
+most internal API gateways and any vendor requiring a key. `--allow-http` exists
+for a genuinely trusted endpoint and has to be passed every time.

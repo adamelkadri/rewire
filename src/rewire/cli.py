@@ -8,6 +8,7 @@ never advertises behaviour that does not exist.
 from __future__ import annotations
 
 import json
+import time
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, assert_never
@@ -74,6 +75,7 @@ from rewire.impact import (
     attach_snippets,
 )
 from rewire.llm import build_provider
+from rewire.llm.base import LLMProvider
 from rewire.sandbox import (
     CheckResult,
     Verdict,
@@ -96,6 +98,18 @@ from rewire.services import (
     publish,
     run_migration,
 )
+from rewire.watch import CheckOutcome as WatchOutcome
+from rewire.watch import CheckStatus as WatchCheckStatus
+from rewire.watch import Watch, WatchAction, WatchStore
+from rewire.watch.monitor import (
+    CheckPolicy,
+    check_all,
+    exit_code_for,
+)
+from rewire.watch.monitor import (
+    accept as accept_watch,
+)
+from rewire.watch.store import validate_name
 
 app = typer.Typer(
     name="rewire",
@@ -1490,6 +1504,307 @@ def _render_publish(outcome: PublishOutcome) -> None:
         "[dim]Rewire has no merge, approve or auto-merge capability. This stays open "
         "until a person acts on it.[/dim]"
     )
+
+
+# ------------------------------------------------------------------- watch ---
+
+watch_app = typer.Typer(
+    help="Follow an upstream specification and act when it moves.", no_args_is_help=True
+)
+app.add_typer(watch_app, name="watch")
+
+
+class _Migrator:
+    """Runs migrations for a watch, building the provider only if one is needed.
+
+    A ``report`` watch never calls a model, and must not require a credential to
+    exist before it can tell you your API changed. Constructing the provider
+    eagerly would make the cheapest, safest mode the one with the most
+    prerequisites.
+    """
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+        self._provider: LLMProvider | None = None
+
+    def __call__(self, request: MigrationRequest) -> MigrationOutcome:
+        """Run one migration, building the provider on first use."""
+        if self._provider is None:
+            self._provider = build_provider(self._settings.llm)
+        return run_migration(request, provider=self._provider, settings=self._settings)
+
+
+def _store(settings: Settings) -> WatchStore:
+    return WatchStore(settings.watch_dir)
+
+
+def _watch_policy(
+    settings: Settings, *, retry: bool, dry_run: bool, allow_http: bool, branch_prefix: str
+) -> CheckPolicy:
+    return CheckPolicy(
+        timeout_seconds=settings.watch.timeout_seconds,
+        max_bytes=settings.watch.max_spec_bytes,
+        allow_http=allow_http or settings.watch.allow_http,
+        retry=retry,
+        dry_run=dry_run,
+        branch_prefix=branch_prefix,
+    )
+
+
+_WATCH_STATUS_MARKUP: dict[WatchCheckStatus, str] = {
+    WatchCheckStatus.ADOPTED: "[cyan]ADOPTED[/cyan]",
+    WatchCheckStatus.UNCHANGED: "[dim]UNCHANGED[/dim]",
+    WatchCheckStatus.REFORMATTED: "[dim]REFORMATTED[/dim]",
+    WatchCheckStatus.NO_BREAKING_CHANGES: "[green]NO BREAKING CHANGES[/green]",
+    WatchCheckStatus.CHANGES_FOUND: "[yellow]CHANGES FOUND[/yellow]",
+    WatchCheckStatus.ALREADY_ACTED: "[dim]ALREADY ACTED[/dim]",
+    WatchCheckStatus.MIGRATED: "[cyan]MIGRATED[/cyan]",
+    WatchCheckStatus.SKIPPED: "[dim]SKIPPED[/dim]",
+    WatchCheckStatus.FAILED: "[red]FAILED[/red]",
+}
+
+
+def _render_check(outcome: WatchOutcome, *, show_diff: bool) -> None:
+    """Print what one check concluded, and the evidence behind it."""
+    marker = _WATCH_STATUS_MARKUP[outcome.status]
+    version = f" [dim]({escape(outcome.version)})[/dim]" if outcome.version else ""
+    console.print(
+        f"{marker}  [bold]{escape(outcome.watch.name)}[/bold]{version} "
+        f"{escape(outcome.summary_line())}"
+    )
+
+    if outcome.changes is not None and outcome.breaking:
+        _render_change_report(
+            outcome.changes, outcome.changes.filter(Severity.POTENTIALLY_BREAKING)
+        )
+    if outcome.migration is not None:
+        _render_outcome(outcome.migration, show_diff=show_diff)
+    if outcome.publication is not None:
+        _render_publish(outcome.publication)
+    if outcome.baseline_advanced:
+        console.print("[dim]The baseline advanced: this repository now targets that version.[/dim]")
+
+
+@watch_app.command("add")
+def watch_add(
+    name: Annotated[str, typer.Argument(help="Name for the watch. Becomes a directory name.")],
+    source: Annotated[
+        str, typer.Option("--source", help="URL or path of the specification to follow.")
+    ],
+    repo: Annotated[
+        Path,
+        typer.Option("--repo", exists=True, file_okay=False, help="Repository the API is used by."),
+    ],
+    action: Annotated[
+        WatchAction,
+        typer.Option("--action", help="How far this watch may go on a breaking change."),
+    ] = WatchAction.REPORT,
+    package: Annotated[
+        list[str] | None, typer.Option("--package", help="Package the API belongs to.")
+    ] = None,
+    base: Annotated[
+        str, typer.Option("--base", help="Branch to propose into. Defaults to the repo's own.")
+    ] = "",
+    draft: Annotated[
+        bool, typer.Option("--draft", help="Open any pull request as a draft.")
+    ] = False,
+    max_attempts: Annotated[
+        int, typer.Option("--max-attempts", min=1, max=10, help="Repair attempts allowed.")
+    ] = 3,
+) -> None:
+    """Declare a specification to follow, and what to do when it changes.
+
+    Adding a watch does nothing on its own. The first `rewire watch check`
+    adopts whatever is upstream as the baseline — the version this repository is
+    taken to target — and reports only what happens after that.
+
+    The default action is `report`: no model is called and nothing is written.
+    `migrate` and `pull_request` spend money, and are opted into here rather than
+    at check time so that an unattended schedule cannot start doing it by accident.
+    """
+    settings = get_settings()
+    store = _store(settings)
+    watch = Watch(
+        name=validate_name(name),
+        source=source,
+        repository=repo,
+        packages=tuple(package or ()),
+        action=action,
+        base=base,
+        draft=draft,
+        max_attempts=max_attempts,
+    )
+    store.save(watch)
+    console.print(
+        f"[green]watching[/green] [bold]{escape(watch.name)}[/bold] "
+        f"{escape(watch.source)} [dim]->[/dim] {escape(str(watch.repository))} "
+        f"[dim](action: {watch.action.value})[/dim]"
+    )
+    console.print(
+        "[dim]Nothing has been fetched yet. Run 'rewire watch check' to adopt a baseline.[/dim]"
+    )
+    if watch.action.calls_a_model:
+        console.print(
+            "[yellow]This watch spends money.[/yellow] Every check that finds a breaking "
+            "change will call a model. Each version is acted on once, so repeating the "
+            "schedule does not repeat the cost."
+        )
+
+
+@watch_app.command("list")
+def watch_list() -> None:
+    """List every declared watch and what the last check of it concluded."""
+    store = _store(get_settings())
+    watches = store.load_all()
+    if not watches:
+        console.print("[dim]No watches are declared. Add one with 'rewire watch add'.[/dim]")
+        return
+
+    table = Table(title="Watches", title_justify="left", title_style="bold cyan")
+    table.add_column("Name", style="bold", no_wrap=True)
+    table.add_column("Action", no_wrap=True)
+    table.add_column("Source", overflow="fold")
+    table.add_column("Baseline", no_wrap=True)
+    table.add_column("Last check", no_wrap=True)
+
+    for watch in watches:
+        state = store.read_state(watch.name)
+        name = watch.name if watch.enabled else f"{watch.name} (disabled)"
+        table.add_row(
+            escape(name),
+            watch.action.value,
+            escape(watch.source),
+            escape(state.version or ("-" if not state.has_baseline else "(unversioned)")),
+            escape(f"{state.last_status or '-'} {state.last_checked}".strip()),
+        )
+    console.print(table)
+
+
+@watch_app.command("show")
+def watch_show(
+    name: Annotated[str, typer.Argument(help="Watch to describe.")],
+) -> None:
+    """Print one watch's declaration and everything remembered about it."""
+    store = _store(get_settings())
+    watch = store.get(name)
+    state = store.read_state(name)
+    console.print_json(json.dumps({"watch": watch.to_dict(), "state": state.to_dict()}, indent=2))
+
+
+@watch_app.command("remove")
+def watch_remove(
+    name: Annotated[str, typer.Argument(help="Watch to remove.")],
+    forget: Annotated[
+        bool,
+        typer.Option("--forget", help="Also delete its baseline and history."),
+    ] = False,
+) -> None:
+    """Stop following a specification.
+
+    The baseline is kept unless --forget is given. Discarding it means the next
+    check of a re-added watch adopts whatever is upstream *then* as the truth,
+    silently swallowing any change that happened in between.
+    """
+    store = _store(get_settings())
+    store.remove(name, forget_state=forget)
+    console.print(f"[green]removed[/green] {escape(name)}")
+
+
+@watch_app.command("accept")
+def watch_accept(
+    name: Annotated[str, typer.Argument(help="Watch whose baseline should advance.")],
+) -> None:
+    """Record that this repository now targets the version last reported.
+
+    The manual half of the baseline rule. A check will not advance the baseline
+    over a breaking change on its own, not even one it migrated and opened a
+    pull request for, because an unmerged pull request is a proposal rather than
+    a fact about the code. This is how a person says the code has caught up.
+    """
+    store = _store(get_settings())
+    watch = store.get(name)
+    version = accept_watch(watch, store=store)
+    console.print(
+        f"[green]accepted[/green] [bold]{escape(name)}[/bold] now targets "
+        f"{escape(version or 'the specification last seen')}"
+    )
+
+
+@watch_app.command("check")
+def watch_check(
+    name: Annotated[str, typer.Argument(help="Watch to check. All of them when omitted.")] = "",
+    retry: Annotated[
+        bool,
+        typer.Option("--retry", help="Act again on a version that was already acted on."),
+    ] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="For pull_request watches: branch and commit, never push."),
+    ] = False,
+    allow_http: Annotated[
+        bool, typer.Option("--allow-http", help="Permit plain HTTP sources and redirects.")
+    ] = False,
+    branch_prefix: Annotated[
+        str, typer.Option("--branch-prefix", help="Leading segment of any branch created.")
+    ] = "rewire",
+    show_diff: Annotated[
+        bool, typer.Option("--diff/--no-diff", help="Print the diff of any patch produced.")
+    ] = False,
+    interval: Annotated[
+        int,
+        typer.Option("--interval", min=0, help="Repeat every N seconds instead of exiting."),
+    ] = 0,
+    passes: Annotated[
+        int,
+        typer.Option("--passes", min=0, help="With --interval: stop after N passes. 0 is forever."),
+    ] = 0,
+) -> None:
+    """Check the watches once, and act on anything they are configured to act on.
+
+    One pass, then exit, with the answer in the exit code: 0 nothing needs
+    anyone, 1 a check could not complete, 2 something is waiting for a person.
+    That is the shape cron, systemd and CI already know how to schedule and
+    alert on, which is why Rewire has no daemon.
+
+    --interval turns it into a foreground polling loop for a demonstration or a
+    container. It is a convenience, not a supervisor: it will not survive a
+    reboot, and it does not know what it missed while it was not running.
+    """
+    settings = get_settings()
+    settings.ensure_data_dirs()
+    store = _store(settings)
+    watches = (store.get(name),) if name else store.load_all()
+    if not watches:
+        console.print("[dim]No watches are declared. Add one with 'rewire watch add'.[/dim]")
+        return
+
+    policy = _watch_policy(
+        settings,
+        retry=retry,
+        dry_run=dry_run,
+        allow_http=allow_http,
+        branch_prefix=branch_prefix,
+    )
+    migrator = _Migrator(settings)
+
+    code = 0
+    completed = 0
+    while True:
+        outcomes = check_all(watches, store=store, policy=policy, migrate=migrator, publish=publish)
+        for outcome in outcomes:
+            _render_check(outcome, show_diff=show_diff)
+        code = exit_code_for(outcomes)
+        completed += 1
+
+        if interval <= 0 or (passes and completed >= passes):
+            break
+        try:
+            time.sleep(interval)
+        except KeyboardInterrupt:  # pragma: no cover - requires a signal
+            break
+
+    if code:
+        raise typer.Exit(code=code)
 
 
 def main() -> None:

@@ -84,6 +84,27 @@ class AgentSettings(BaseModel):
     max_files_per_patch: int = Field(default=25, ge=1)
 
 
+class WatchSettings(BaseModel):
+    """Network policy for following upstream specifications.
+
+    A monitor polls something it does not control, unattended, on a schedule.
+    Every value here is a ceiling on how much it will believe.
+    """
+
+    timeout_seconds: float = Field(default=30.0, gt=0)
+    #: Largest response body accepted, matching the specification loader's cap.
+    max_spec_mb: int = Field(default=32, gt=0)
+    #: Permit plain HTTP, before and after redirects. Off, because a monitor
+    #: that goes on to call a model and open a pull request should not trust an
+    #: unauthenticated document over an unauthenticated channel.
+    allow_http: bool = False
+
+    @property
+    def max_spec_bytes(self) -> int:
+        """The body ceiling in bytes."""
+        return self.max_spec_mb * 1024 * 1024
+
+
 class Settings(BaseSettings):
     """Top-level application settings."""
 
@@ -114,6 +135,7 @@ class Settings(BaseSettings):
     llm: LLMSettings = Field(default_factory=LLMSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
+    watch: WatchSettings = Field(default_factory=WatchSettings)
 
     @field_validator("data_dir")
     @classmethod
@@ -130,9 +152,14 @@ class Settings(BaseSettings):
         """Directory holding per-migration run artefacts and agent traces."""
         return self.data_dir / "runs"
 
+    @property
+    def watch_dir(self) -> Path:
+        """Directory holding watch declarations, baselines and check state."""
+        return self.data_dir / "watch"
+
     def ensure_data_dirs(self) -> None:
         """Create the data directories if they do not already exist."""
-        for directory in (self.data_dir, self.index_dir, self.runs_dir):
+        for directory in (self.data_dir, self.index_dir, self.runs_dir, self.watch_dir):
             directory.mkdir(parents=True, exist_ok=True)
 
 
@@ -154,5 +181,6 @@ __all__ = [
     "LogLevel",
     "SandboxSettings",
     "Settings",
+    "WatchSettings",
     "get_settings",
 ]

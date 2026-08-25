@@ -20,7 +20,7 @@ Legend: **done** · *in progress* · planned
 | 9 | Model comparison across providers | **done** |
 | 10 | Agent ablations (AST vs text, repair on/off, context strategies) | **done** |
 | 11 | GitHub integration (branch, PR, never auto-merge) | **done** |
-| 12 | Automatic change monitoring | planned |
+| 12 | Automatic change monitoring | **done** |
 | 13 | HTTP API and background jobs | planned |
 | 14 | Observability | planned |
 | 15 | Web dashboard | planned |
@@ -31,23 +31,102 @@ Legend: **done** · *in progress* · planned
 Milestones: **0–3** core intelligence · **4–7** working agent · **8–10** measured
 agent · **11–18** production product.
 
+## What Phase 12 delivers
+
+- `rewire watch add <name> --source <url|path> --repo ./repo` — a declaration
+  that a specification should be followed. `watch check` performs one pass;
+  `list`, `show`, `remove` and `accept` manage the rest.
+- **A baseline that means something** (ADR-055). It is the specification version
+  the repository's code is believed to target, stored as the document rather
+  than a digest, and it advances only across a delta proven to contain nothing
+  breaking, or when a person runs `rewire watch accept`. A verified patch does
+  not move it, and neither does an open pull request.
+- **Three cheap questions before the expensive one** (ADR-056): a conditional
+  request that usually returns 304, a byte digest, and a digest of the
+  *normalised* specification. A vendor who regenerates their document with
+  different key order produces `REFORMATTED`, not an incident.
+- **A version is acted on once** (ADR-057), failures included, so an hourly cron
+  cannot open a pull request every hour for one change or spend money every hour
+  reaching the same wrong answer. `--retry` is how a person asks again.
+- **No daemon** (ADR-058). One pass, one exit code — `0` nothing needs anyone,
+  `1` a check could not complete, `2` something is waiting for a person — which
+  is the shape cron, systemd and CI already know how to schedule and alert on.
+- **No credential, and no plain HTTP** (ADR-059). The fetcher sends no
+  `Authorization`, token, netrc or cookie, so there is nothing for a hostile URL
+  to extract; the body is bounded while it is read, not after; and an `https`
+  URL that redirects to `http` is refused on the redirect.
+- A lock per watch, taken over when the process that held it is gone, so
+  overlapping cron runs skip rather than race on one baseline.
+- Escalating actions, each opted into at `watch add`: `report` (the default,
+  which calls no model and needs no credential), `migrate`, `pull_request`.
+
+**Demonstrated live, end to end.** A watch over a specification file, a repository
+using it, and `--action pull_request --dry-run`. The first check adopted 1.0.0.
+A reformat into JSON was recognised as no change. An added optional field was
+recognised as harmless and advanced the baseline. Renaming `customer_name` to
+`customer` produced a branch holding exactly the two patched files, a full pull
+request description, and a `verified` verdict — 2 attempts, 22 411 tokens,
+$0.0409 — while `main` kept its single commit and the checkout was left back on
+`main` with a clean tree. **The baseline stayed at 1.0.0**, because nothing was
+merged. The next check answered `ALREADY ACTED` in 0.5 seconds without calling
+a model.
+
+## What Phase 12 explicitly does not deliver
+
+- **No detection that a pull request was merged.** The baseline advances only by
+  hand after one, so until `rewire watch accept` is run the same finding is
+  re-reported on every check.
+- No specification behind a credential, which rules out most internal API
+  gateways and any vendor requiring a key.
+- No notification of any kind: no email, no Slack, no webhook. The exit code and
+  stdout are the whole interface, on the assumption that whatever runs the
+  schedule already knows how to alert.
+- No watching of anything but an OpenAPI document — not a package release feed,
+  not a changelog, not a Git tag.
+- No history. `state.json` holds the last check and up to fifty acted-upon
+  versions; there is no record of what the specification looked like three
+  changes ago.
+- No concurrency: watches are checked one after another, so a pass over twenty
+  specifications takes twenty round trips.
+
+## Known technical debt carried out of Phase 12
+
+- **A failed migration is remembered as though it were a verdict.** That is
+  deliberate — automatic retry is what turns one failure into a bill — but
+  nothing surfaces "these watches are stuck" except reading `watch list`, and
+  `--retry` has to be run by hand.
+- The watchlist is a JSON file with no schema and no version field, which is the
+  same debt `migration.json` carried into Phase 8. Phase 13's API will read it.
+- `WatchStore` re-reads and rewrites the whole watchlist for every mutation. Fine
+  at ten watches, wrong at a thousand.
+- The lock identifies a stale holder by pid, which is only meaningful on the
+  machine that wrote it. Two hosts sharing a data directory over NFS would both
+  believe the other's lock was stale.
+- `--interval` is a foreground loop, not a supervisor. It does not survive a
+  reboot and cannot say what it missed while it was not running.
+- Nothing bounds total spend across a pass. The per-version guard stops repeats,
+  but twenty watches each finding a distinct breaking change on the same morning
+  would run twenty migrations.
+- The check is synchronous from fetch to pull request, so one slow migration
+  delays every watch behind it in the pass.
+
 ## What Phase 11 delivers
 
 - `rewire migrate ./repo --old … --new … --pull-request` — the verified patch
   goes onto a new branch and becomes a pull request. `--draft`, `--base`,
   `--branch-prefix` and `--dry-run` shape it.
-- **No ability to merge, structurally** (ADR-047). `gitio/github.py` contains one
+- **No ability to merge, structurally** (ADR-051). `gitio/github.py` contains one
   write, `gh pr create`. There is no merge, approve or auto-merge function for a
   bug or a future flag to reach, and a test asserts it over the module's string
   literals.
 - A write-side Git module whose every operation is narrowed so Rewire cannot
-  destroy work it did not create (ADR-048): only the patch's own paths are
+  destroy work it did not create (ADR-052): only the patch's own paths are
   staged, a branch is never reused, a push is never forced, and the original
   branch is restored in a `finally`.
 - Publishing preconditions checked **before the model is called** — not a Git
   repository, dirty tree, no remote, `gh` not authenticated — because every one
   of those answers is free and finding out afterwards is not.
-- A pull request description written to be argued with (ADR-050): the API changes,
+- A pull request description written to be argued with (ADR-054): the API changes,
   the diff, the agent's own summary, the checks before *and* after, the cost, and
   a section naming what the evidence does not establish.
 - `gh` rather than a REST client, so there is **no new credential**: the user has
@@ -94,9 +173,9 @@ Not a numbered phase. Phases 8 to 10 measured one failure from three directions,
 and this is the work that followed from it rather than from the roadmap order.
 
 **Delivers.** A `WEAKENED` verdict beside `VERIFIED`, refused by `--apply` and fed
-back to the repair loop with its own advice (ADR-043). Two deterministic checks
+back to the repair loop with its own advice (ADR-047). Two deterministic checks
 decide it: reductions in what the tests assert, counted rather than read
-(ADR-044), and changes to the repository's own public interface (ADR-045).
+(ADR-048), and changes to the repository's own public interface (ADR-049).
 
 **Measured.** Repair arm 6/10 with 3 overclaims before, 7/10 with 1 overclaim
 after; no correct patch was lost to a false positive in any run. The stronger
@@ -105,7 +184,7 @@ from the previous run: five correct patches, zero false positives, and the cheat
 caught. Wall clock 1084s, $0.43.
 
 **Does not deliver.** Two observed cheat classes are still undetected and named
-in ADR-046: rewriting a test's input data, which is structurally identical to a
+in ADR-050: rewriting a test's input data, which is structurally identical to a
 correct migration, and inventing a value absent from both specifications, which
 needs `ChangeReport` to record *which* enum values changed rather than only that
 some did.
@@ -126,13 +205,13 @@ real restriction.
     they are used. Every tool kept, so it can still find the code.
   - **no-impact** — the same, and the pipeline no longer stops when impact
     analysis finds nothing, because "it can tell you there is nothing to do" is
-    part of what impact analysis is worth (ADR-041).
+    part of what impact analysis is worth (ADR-045).
   - **no-search** — the mirror image: given the ranked locations, denied the
     tools to look beyond them.
 - `AgentConfig` — the agent's information diet as a value, defaulting to the
   shipped configuration, recorded in every trace so a run can never be filed
   under the wrong arm.
-- Withholding that actually withholds (ADR-040): the locations are removed from
+- Withholding that actually withholds (ADR-044): the locations are removed from
   the task prompt *and* from `inspect_api_change`, the change list is no longer
   filtered by what impact analysis found, and a withheld tool is refused by
   `invoke` as well as omitted from the offered specifications. A misspelt tool
@@ -141,7 +220,7 @@ real restriction.
   migration benchmark, the model comparison and the ablation all describe an
   experimental condition the same way.
 - One shared reporting implementation for every comparison in the project
-  (ADR-042), verified by re-rendering Phase 9's saved results through it and
+  (ADR-046), verified by re-rendering Phase 9's saved results through it and
   getting identical numbers.
 
 **Measured, four arms, ten cases each, one run per arm, gpt-4o throughout:**
@@ -203,15 +282,15 @@ Wall clock 1913s, total spend $0.94.
   construction rather than by discipline.
 - **A 95% Wilson confidence interval on every rate, and an exact paired sign test
   between every pair of models.** The report prints "not distinguishable from
-  chance" instead of a ranking whenever the test says so (ADR-037).
-- **Agreement structure, not just a ranking** (ADR-039): the cases *no* model
+  chance" instead of a ranking whenever the test says so (ADR-041).
+- **Agreement structure, not just a ranking** (ADR-043): the cases *no* model
   solved, reported as Rewire's ceiling rather than the model's, and the cases
   *every* model solved, which separate nothing and are excluded from the paired
   test.
 - Per-model overclaim rate, denominated in patches Rewire vouched for — the
   number that answers whether verification or the model is the thing to fix.
 - A requested model with no API key is reported as skipped with the reason and
-  the environment variable that would fix it, never dropped (ADR-038).
+  the environment variable that would fix it, never dropped (ADR-042).
 - A crashed model is recorded the same way and the models that already ran are
   kept, along with a partial results file written after each model.
 
@@ -428,7 +507,7 @@ source but not in the test that asserts on it is reported `REGRESSED` with
 - Python only. Check detection understands pyproject, requirements, pytest, ruff
   and mypy, and nothing else.
 - No sandbox for the install step's build backend, which executes untrusted code
-  with network access under container confinement. See ADR-026.
+  with network access under container confinement. See ADR-030.
 
 ## What Phase 4 delivers
 
@@ -584,7 +663,7 @@ debt below.
   arm to build the tool context. Nothing measures what it costs to run, only what
   its output is worth.
 - `no-impact` changes two things relative to `full` — the findings and the gate —
-  by design (ADR-041), which is why `no-impact-locations` exists beside it. Read
+  by design (ADR-045), which is why `no-impact-locations` exists beside it. Read
   alone it would be a confounded arm.
 - The prompt is constant across arms, so an arm that would do better with wording
   written for it is measured on wording written for the control. The same
@@ -631,7 +710,7 @@ debt below.
   confidence interval. Repeating each case n times is the fix, and multiplies
   the cost by n.
 - `07-required-field-added` is a case Rewire provably cannot do, kept
-  deliberately (ADR-036). It drags the headline rate down by roughly ten points
+  deliberately (ADR-040). It drags the headline rate down by roughly ten points
   and should stay there until impact analysis can reason about additions.
 - Hidden tests are hand-written per case, which is the expensive part of adding
   one and the reason the dataset is ten cases rather than a hundred.
@@ -647,7 +726,7 @@ debt below.
   pull request, so the "review before merge" story depends entirely on the user
   running `git diff`. Phase 11 replaces this.
 - A repository with no tests can never be applied automatically, because it can
-  never be `VERIFIED`. That is intended (ADR-031), but it excludes a large
+  never be `VERIFIED`. That is intended (ADR-035), but it excludes a large
   fraction of real repositories and Phase 12 will need a first-class state for
   it rather than treating it as failure.
 - `MigrationRequest` carries both *what* to migrate and *how far to go*, which
@@ -695,7 +774,7 @@ debt below.
   pinned images and pinned resolutions per case.
 - **Installing a repository executes its build backend**, with network access,
   inside the container. It is the weakest point in the isolation story. Confined
-  and reported, but not removed — see ADR-026.
+  and reported, but not removed — see ADR-030.
 - **No caching whatsoever.** Every run re-stages the repository and reinstalls
   its dependencies. On the demo repository that is roughly 15 seconds of install
   for one second of checks, and Phase 6's repair loop multiplies it by the retry

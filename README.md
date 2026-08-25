@@ -18,9 +18,10 @@ reasoning and code generation are genuinely required, and it is never permitted
 to declare its own success: correctness is decided by tests, type checks and
 lints executed in a sandbox.
 
-> **Status: measured, and acting on what was measured.** The pipeline runs end
-> to end and is scored against a benchmark that grades each patch with a contract
-> test the agent never sees. That benchmark found that **a fifth to a third of
+> **Status: measured, acting on what was measured, and now unattended.** The
+> pipeline runs end to end, follows an upstream specification on a schedule, and
+> is scored against a benchmark that grades each patch with a contract test the
+> agent never sees. That benchmark found that **a fifth to a third of
 > the patches Rewire vouched for were wrong** — the agent satisfied the visible
 > tests by weakening them — and that the rate barely moved across four models or
 > four harness configurations. Rewire now refuses to call such a patch verified,
@@ -61,6 +62,7 @@ src/rewire/
   services/    orchestration: the propose-verify-repair loop          (Phase 6)
   evals/       benchmark datasets, runners, metrics                  (Phase 3)
   gitio/       Git reads, Git writes, and pull requests               (Phase 11)
+  watch/       following an upstream spec and acting when it moves    (Phase 12)
   api/         FastAPI surface                                       (Phase 13)
   models/      persistence models and shared schemas
 tests/         unit, integration and fixtures
@@ -123,12 +125,12 @@ Review with `git diff`; undo with `git checkout -- app/__init__.py …`.
   sandbox exists so that "it looks right" is not a reason to modify someone's
   code, and a `--force` would make it one. Rewire is not stopping you from
   applying it — `git apply` is one command away — it is declining to do it
-  itself on evidence it does not have ([ADR-031](docs/decisions.md)).
+  itself on evidence it does not have ([ADR-035](docs/decisions.md)).
 - **Nothing is written into a dirty working tree.** Into a clean checkout,
   `git diff` is exactly Rewire's change and `git checkout` undoes it; into a
   tree with uncommitted work the two diffs merge and the undo is gone. Outside
   a Git repository there is no override, because no amount of confidence
-  creates an undo ([ADR-032](docs/decisions.md)).
+  creates an undo ([ADR-036](docs/decisions.md)).
 - **Nothing is written if a file changed** between verification and writing.
 
 Checked in that order, and the tree check runs *before* the model, so a refusal
@@ -137,7 +139,7 @@ costs milliseconds rather than an agent run.
 Four of the seven outcomes are successes — including "the spec moved and
 nothing here uses it", which is what most runs will report once specifications
 are watched automatically, and which would switch off anyone's alerting if it
-exited non-zero ([ADR-033](docs/decisions.md)).
+exited non-zero ([ADR-037](docs/decisions.md)).
 
 The sections below break the pipeline into the commands that build it.
 
@@ -249,7 +251,7 @@ Text search reports seven matching lines. AST search reports the same
 occurrences *classified*: a keyword argument on an SDK call is near-certain
 evidence of the API field, while the same token in a comment is nearly none.
 Phase 3 turns those weights into confidence scores — see
-[ADR-015](docs/decisions.md).
+[ADR-019](docs/decisions.md).
 
 Text search remains available and is a real implementation, not a stub: ripgrep
 when installed, a pure-Python scanner when not, both held to the same contract
@@ -294,18 +296,18 @@ app/client.py:14
 
 Confidence accumulates in **log-odds**, so weights add, evidence *against* is
 just a negative weight, and the score saturates smoothly instead of piling up at
-1.0 ([ADR-014](docs/decisions.md)). The signals that matter most:
+1.0 ([ADR-018](docs/decisions.md)). The signals that matter most:
 
 - **A resolved call target (+2.0)** is the only signal connecting the *name* to
   the *library* rather than inferring it from proximity.
 - **Direction agreement.** A request field is written; a response field is read.
   Getting this wrong made `choices[].message.role` match the `{"role": "user"}`
-  in an outgoing request ([ADR-015](docs/decisions.md)).
+  in an outgoing request ([ADR-019](docs/decisions.md)).
 - **Call-graph proximity (+1.2)** rescues a test one hop from the SDK, which
   imports no client library and would otherwise look exactly like a decoy.
 - **No package attributed → no package signals at all.** Treating "does not
   import the SDK" as negative when Rewire never worked out *which* SDK would
-  score every real call site as unaffected ([ADR-016](docs/decisions.md)).
+  score every real call site as unaffected ([ADR-020](docs/decisions.md)).
 
 ## Measured migration success
 
@@ -341,18 +343,18 @@ Three passed the repository's visible tests by changing them:
 None of these is detectable by inspecting the diff, because a genuine migration
 also updates tests — that is most of what a migration *is*. The only way to
 separate them is to grade against something the agent cannot edit
-([ADR-034](docs/decisions.md)).
+([ADR-038](docs/decisions.md)).
 
 That is why the benchmark never reports a success rate without the overclaim
 rate beside it, and why `07-required-field-added` — a case Rewire provably
 cannot do, because impact analysis matches names that appear in the code and
 this change requires sending a field that appears nowhere — stays in the
-dataset rather than being quietly removed ([ADR-036](docs/decisions.md)).
+dataset rather than being quietly removed ([ADR-040](docs/decisions.md)).
 
 The dataset is itself tested: every case's visible tests must pass before
 migration and every case's hidden tests must **fail** before it. A hidden test
 that already passes grades nothing and would silently award a success to a patch
-that changed nothing ([ADR-035](docs/decisions.md)).
+that changed nothing ([ADR-039](docs/decisions.md)).
 
 **Ten hand-written cases, one model, two runs.** That is a statement about ten
 cases, not an estimate of real-world performance. Full results in
@@ -381,7 +383,7 @@ model.
 sign test over the cases the two disagreed on, and all six come back
 inconclusive — the largest is 2–0 on two disagreements, p = 0.50, which is a coin
 landing the same way twice. The report prints that verdict instead of a ranking
-([ADR-037](docs/decisions.md)). Those intervals are Wilson rather than the normal
+([ADR-041](docs/decisions.md)). Those intervals are Wilson rather than the normal
 approximation, which at *n* = 10 is too narrow and puts bounds outside [0, 1]
 exactly where these results sit.
 
@@ -397,7 +399,7 @@ and it is only visible because the grading tests are hidden.
 **Three cases no model solved** — `04-response-field-renamed`,
 `05-enum-value-removed`, `07-required-field-added`. A stronger model did not move
 them, so they are Rewire's ceiling rather than the model's, and they are the
-concrete target list for the next phase ([ADR-039](docs/decisions.md)). Case 04
+concrete target list for the next phase ([ADR-043](docs/decisions.md)). Case 04
 is the sharpest: three of the four models produced a patch Rewire *vouched for*
 and the contract test rejected.
 
@@ -408,7 +410,7 @@ fifth as much, scored one case lower, and overclaimed least.
 `anthropic:claude-sonnet-5` was requested and appears in the report's **Not run**
 section: this project has no Anthropic key. The provider layer is agnostic and
 the report names the gap rather than closing it by omission
-([ADR-038](docs/decisions.md)) — but until a non-OpenAI model actually runs this,
+([ADR-042](docs/decisions.md)) — but until a non-OpenAI model actually runs this,
 "across providers" describes the machinery and not the table above.
 
 **Four models, ten cases, one run each.** Full results in
@@ -464,15 +466,110 @@ the only arm that bypasses "stop when impact analysis finds no affected code", a
 the only arm that produced a **spurious patch** for `09-unrelated-change` — a
 repository that needed no migration at all. Being able to say "nothing here" is a
 separable part of what impact analysis contributes, which is why it gets its own
-arm ([ADR-041](docs/decisions.md)).
+arm ([ADR-045](docs/decisions.md)).
 
 Making an ablation genuinely ablate took three fixes, each a leak found while
 building it: `inspect_api_change` also returns locations; the task prompt listed
 only the changes impact analysis had found code for; and a model can call a tool
-it was never offered ([ADR-040](docs/decisions.md)).
+it was never offered ([ADR-044](docs/decisions.md)).
 
 **Four arms, ten cases, one run each.** Full results in
 [`evals/results/ablation.md`](evals/results/ablation.md).
+
+## Notice on its own
+
+```bash
+uv run rewire watch add stripe \
+  --source https://raw.githubusercontent.com/stripe/openapi/master/openapi/spec3.yaml \
+  --repo ./repo
+uv run rewire watch check          # cron this
+```
+
+Everything above starts with a person who already knew the API had changed. This
+is the part that notices. `watch check` performs **one pass and exits**, with the
+answer in the exit code — `0` nothing needs anyone, `1` a check could not
+complete, `2` something is waiting for a person. That is the shape cron, systemd
+and CI already know how to schedule and alert on, which is why there is no daemon
+([ADR-058](docs/decisions.md)).
+
+```text
+ADOPTED              orders (1.0.0) adopted 1.0.0 as the baseline
+UNCHANGED            orders (1.0.0) the specification has not changed
+REFORMATTED          orders (1.0.0) the document changed but the specification it describes did not
+NO BREAKING CHANGES  orders (1.1.0) the specification changed, and nothing in the change can break a caller
+CHANGES FOUND        orders (2.0.0) 2 breaking change(s) found; this watch only reports
+```
+
+Five of the nine outcomes are ways of saying *nothing to do*, and each is reached
+more cheaply than the last: a conditional request that usually returns `304` and
+no body, then a digest of the bytes, then a digest of the **normalised**
+specification. Only what survives all three is diffed, and only a diff containing
+something that can break a caller may reach a model
+([ADR-056](docs/decisions.md)). A vendor who regenerates their document with
+different key order gets `REFORMATTED`, not an incident.
+
+### What a baseline is
+
+The baseline is *the specification version this repository's code is believed to
+target* — stored as the document, not a digest, because a digest answers "did it
+change" and the next question is always "changed how". It advances across a delta
+proven to contain nothing breaking, and otherwise only when a person runs
+`rewire watch accept` ([ADR-055](docs/decisions.md)).
+
+It does **not** advance because a patch verified, and it does not advance because
+a pull request opened. An unmerged pull request is a proposal about your
+repository, not a fact about it, and recording it as the baseline would make
+Rewire's own state a claim about a merge that never happened.
+
+### Acting, and only once
+
+```bash
+uv run rewire watch add orders --source ./spec.yaml --repo ./repo \
+  --action pull_request --base main
+```
+
+Three escalating actions, each opted into when the watch is created rather than
+at check time: `report` (the default — calls no model, needs no credential),
+`migrate`, and `pull_request`. Every attempt is recorded against the digest that
+provoked it, **failures included**, so a watch on an hourly cron cannot open a
+pull request every hour for one change, or spend money every hour reaching the
+same wrong answer ([ADR-057](docs/decisions.md)):
+
+```text
+ALREADY ACTED  orders (2.0.0) this version was already acted on: dry_run (run 5d1a834d3683)
+```
+
+`--retry` is how you ask again.
+
+### Demonstrated live, end to end
+
+A watch over a specification, a repository using it, and
+`--action pull_request --dry-run`. Renaming `customer_name` to `customer`
+produced a branch holding exactly the two patched files and a full pull request
+description — 2 attempts, 22 411 tokens, $0.0409 — while `main` kept its single
+commit and the checkout was left back on `main` with a clean tree:
+
+```text
+DRY RUN  nothing was pushed and no pull request was opened.
+Verdict verified — the test suite passed after the patch and no check regressed
+```
+
+The baseline stayed at `1.0.0`, because nothing was merged. The next check
+answered `ALREADY ACTED` in half a second without calling a model.
+
+### What the monitor is not allowed to do
+
+It sends **no credential of any kind** — no `Authorization` header, no token, no
+netrc, no cookie jar — so a hostile URL has nothing to extract
+([ADR-059](docs/decisions.md)). It refuses plain HTTP, and repeats that check
+*after* the redirect chain, because an `https` URL that redirects to `http` has
+still delivered the document in the clear. The response body is bounded while it
+is read rather than after, in chunks against a ceiling; the declared
+`Content-Length` is checked first, but only as a free refusal — it is a claim,
+not a measurement.
+
+The cost is real and named: a specification behind a credential cannot be
+watched, which rules out most internal API gateways.
 
 ## Open a pull request
 
@@ -488,11 +585,11 @@ The verified patch goes onto a new branch and becomes a pull request. Add
 contains exactly one write, `gh pr create`. There is no merge function, no
 approve, no auto-merge flag, and a test asserts their absence over the module's
 string literals so a future flag cannot quietly acquire one
-([ADR-047](docs/decisions.md)). A policy is a sentence a bug can step around; a
+([ADR-051](docs/decisions.md)). A policy is a sentence a bug can step around; a
 missing capability is not.
 
 The write-side Git module is shaped by one rule — Rewire must never destroy work
-it did not create ([ADR-048](docs/decisions.md)):
+it did not create ([ADR-052](docs/decisions.md)):
 
 - **only the patch's own paths are staged.** `git add -A` would sweep your
   unrelated edits into Rewire's commit, and no care elsewhere gets them back out;
@@ -523,7 +620,7 @@ Checks that could not run at all: lint, typecheck.
 
 A description listing only the green checks invites a reviewer to skim and
 approve, which turns an automated proposal into an automated merge with extra
-steps ([ADR-050](docs/decisions.md)). The body also carries the API changes, the
+steps ([ADR-054](docs/decisions.md)). The body also carries the API changes, the
 diff, the agent's own summary, the checks before *and* after, and the cost.
 
 `gh` is used rather than a REST client so there is **no new credential**: it is
@@ -555,7 +652,7 @@ verification, so that is where it is fixed.
 
 A new verdict, `WEAKENED`, sits beside `VERIFIED`. The suite passed, and it
 passed partly because the patch changed what it checks. `--apply` refuses it and
-the repair loop feeds it back to the agent ([ADR-043](docs/decisions.md)).
+the repair loop feeds it back to the agent ([ADR-047](docs/decisions.md)).
 
 Two deterministic checks decide it — no model is asked, because the model that
 would be asked is the one that weakened the tests.
@@ -567,12 +664,12 @@ check that read them would fire on every honest patch and be switched off within
 a week. Instead it counts test functions and their assertions and reports only
 *reductions*: a test deleted, a test with fewer assertions, a test newly marked
 skip or xfail. A rename leaves every count untouched; a deletion cannot hide
-([ADR-044](docs/decisions.md)).
+([ADR-048](docs/decisions.md)).
 
 **Do not change your own public interface.** A migration changes how a repository
 *calls* an API. Renaming a public function's parameter to match the wire field —
 and updating the test to agree — is a breaking change to the repository's own
-callers, and the assertion counts never move ([ADR-045](docs/decisions.md)).
+callers, and the assertion counts never move ([ADR-049](docs/decisions.md)).
 
 ### The first version failed, and the failure chose the second check
 
@@ -612,7 +709,7 @@ stronger evidence, because it holds the patches fixed.
 
 ### Two cheats it cannot catch
 
-Named rather than left implied ([ADR-046](docs/decisions.md)). One patch rewrote
+Named rather than left implied ([ADR-050](docs/decisions.md)). One patch rewrote
 a test's input data from `{"finish_reason": ...}` to
 `{"choices": [{"finish_reason": ...}]}` — which is exactly what a *correct*
 response-field migration looks like; only the specification knows which shape is
@@ -684,16 +781,16 @@ Three design choices carry this phase:
   `CANDIDATE`, the output type is `CandidatePatch`, and `verified` returns
   `False` unconditionally. The first live run justified the caution: the model's
   summary claimed two edits in a file where the diff shows one
-  ([ADR-021](docs/decisions.md)).
+  ([ADR-025](docs/decisions.md)).
 - **Edits are exact string replacements, not model-authored diffs.** Asking a
   model for a unified diff asks it to count lines; a large share of such agents'
   failures are malformed hunks rather than bad reasoning. Rewire computes the
   diff, so it is always well formed — and `git apply` accepts it
-  ([ADR-019](docs/decisions.md)).
+  ([ADR-023](docs/decisions.md)).
 - **Authority is bounded by the tool surface, not by the prompt.** Repository
   content never enters the system prompt and arrives only wrapped as untrusted
   data. Even a fully hijacked model can only call eight read-and-propose tools:
-  no shell, no network, no write path ([ADR-020](docs/decisions.md)).
+  no shell, no network, no write path ([ADR-024](docs/decisions.md)).
 
 Provider is chosen by configuration alone, with no SDK type escaping
 `rewire.llm`:
@@ -745,20 +842,20 @@ Four things this design insists on:
 - **The baseline is measured, not assumed.** Real repositories have a failing
   test and an unclean linter. Without a before-run, a verifier attributes the
   repository's existing state to the agent — invisible on hand-made fixtures,
-  fatal to a benchmark ([ADR-023](docs/decisions.md)).
+  fatal to a benchmark ([ADR-027](docs/decisions.md)).
 - **"Not checked" is not "passing".** A repository with no tests, a linter
   missing from the image, and a suite that timed out are three different
   statuses, and none of them is a pass. `VERIFIED` requires a test suite that
-  actually ran ([ADR-024](docs/decisions.md)) — so `INCONCLUSIVE` exits non-zero
+  actually ran ([ADR-028](docs/decisions.md)) — so `INCONCLUSIVE` exits non-zero
   just as `REGRESSED` does.
 - **The isolation is tested by attacking it.** The container drops all
   capabilities, runs non-root on a read-only root filesystem with no network and
   hard memory/CPU/process ceilings. Integration tests open a socket, write
   outside the workspace and fork until the kernel refuses — and assert each
-  attempt fails ([ADR-025](docs/decisions.md)).
+  attempt fails ([ADR-029](docs/decisions.md)).
 - **Only installation may reach the network**, on its own reported step; a
   repository with no dependencies never goes online at all, and `--no-install`
-  forces that ([ADR-026](docs/decisions.md)).
+  forces that ([ADR-030](docs/decisions.md)).
 
 To measure a repository without involving an agent:
 
@@ -796,14 +893,14 @@ found the file and produced a patch that verified.
 - **Retries need evidence, not suspicion.** Only `REGRESSED` and `ERRORED` are
   retried. `INCONCLUSIVE` — no tests, tooling missing, suite already failing —
   stops immediately, because nothing measured the patch and rewriting it cannot
-  change that ([ADR-027](docs/decisions.md)).
+  change that ([ADR-031](docs/decisions.md)).
 - **Each attempt starts from the original files.** There is no un-stage tool, so
   an attempt inheriting the previous builder could only *add* to a patch that
   was already wrong. A fresh builder is what lets a mistaken edit be replaced
-  ([ADR-028](docs/decisions.md)).
+  ([ADR-032](docs/decisions.md)).
 - **The sandbox's output is untrusted too.** A failing assertion's message is
   written by the repository, not by Rewire, so it arrives in the same envelope
-  as any other repository content ([ADR-029](docs/decisions.md)).
+  as any other repository content ([ADR-033](docs/decisions.md)).
 - **The loop stops when it stops progressing** — the same patch proposed twice,
   no patch at all, or the shared token budget spent. Each is reported as what it
   is rather than as a failure to migrate.
@@ -915,7 +1012,7 @@ Recorded in [`docs/decisions.md`](docs/decisions.md). In short:
 
 ## Limitations
 
-Tracked honestly in [docs/roadmap.md](docs/roadmap.md). As of Phase 5:
+Tracked honestly in [docs/roadmap.md](docs/roadmap.md). As of Phase 12:
 
 - **OpenAPI 3.x only.** Swagger 2.0 is rejected with a message telling you to
   convert first. GraphQL, gRPC and hand-written SDK changelogs are not supported.
@@ -934,9 +1031,6 @@ Tracked honestly in [docs/roadmap.md](docs/roadmap.md). As of Phase 5:
 - **No cross-file call graph.** A call to a locally defined wrapper is recorded
   but not followed into the wrapper's body.
 - **No index caching** — every command reparses the repository from scratch.
-- **No measured success rate.** The repair loop is demonstrated on hand-made
-  cases, not benchmarked. A real dataset and published precision/recall are
-  Phase 8, and no figure should be quoted before then.
 - **A flaky test looks exactly like a regression**, and sends the agent to fix a
   bug its patch did not cause.
 - **Verification is not reproducible.** Dependencies are resolved fresh on every
@@ -944,6 +1038,16 @@ Tracked honestly in [docs/roadmap.md](docs/roadmap.md). As of Phase 5:
   differently next month. Phase 8 needs pinned images for published numbers.
 - **Sandbox checks are Python-only.** A repository built with tox, nox, a
   Makefile or another language gets byte-compilation and nothing else.
+- **A monitored specification cannot be behind a credential**, because the
+  fetcher deliberately holds none. Most internal API gateways are out of reach.
+- **A merged pull request is not detected.** The baseline advances only when you
+  run `rewire watch accept`, so until you do, the same finding is re-reported.
+- **A watch notifies nothing.** No email, no Slack, no webhook — the exit code
+  and stdout are the whole interface.
+- **A failed migration is remembered as though it were a verdict**, and the watch
+  will not try again on its own. `--retry` is deliberate, and manual.
+- **Nothing bounds total spend across a pass.** The per-version guard stops
+  repeats, not twenty watches each finding a distinct breaking change at once.
 
 ## Licence
 

@@ -117,6 +117,12 @@ class EvaluationError(RewireError):
     code = "evaluation_error"
 
 
+class WatchError(RewireError):
+    """A monitored specification could not be fetched, or a watch is malformed."""
+
+    code = "watch_error"
+
+
 __all__ = [
     "AgentError",
     "AnalysisError",
@@ -132,4 +138,5 @@ __all__ = [
     "SandboxTimeoutError",
     "SpecParseError",
     "ToolchainError",
+    "WatchError",
 ]
