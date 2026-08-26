@@ -529,7 +529,9 @@ time, and investigating why corrected a claim this project had been repeating.
 nor `inspect_api_change` ever *rendered* them. The agent was told a value had
 been removed and another added at the same field, never which, so inventing one
 was the only move left. The values are now shown
-([ADR-060](docs/decisions.md)).
+([ADR-060](docs/decisions.md)), and the case passed three times out of three
+afterwards — the first passes in seventeen runs. Three runs is not a rate, and
+the full benchmark has not been re-run.
 
 Making an ablation genuinely ablate took three fixes, each a leak found while
 building it: `inspect_api_change` also returns locations; the task prompt listed

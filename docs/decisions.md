@@ -1419,6 +1419,10 @@ the only move available. The information was one line away the whole time.
 truncation is a real limit: a large schema fragment is shown as a prefix, and an
 agent that needs the whole thing has to read the specification itself.
 
-**Not yet measured.** The benchmark has not been re-run since this change, so
-nothing here claims case 05 now passes — only that the reason it could not was
-removed. Re-running is the test.
+**Measured.** `05-enum-value-removed` was run three times under the change and
+passed all three — verified, and correct by the hidden contract test, on the
+first attempt each time, at 6.6k–7.9k tokens and about $0.01 per run. It had
+failed the same way in all sixteen runs before it. Three runs is three runs, and
+the model is not deterministic; what makes this more than a lucky streak is that
+the mechanism is deterministic and visible in the prompt. The full comparison and
+ablation have not been re-run, so no aggregate rate here has moved.

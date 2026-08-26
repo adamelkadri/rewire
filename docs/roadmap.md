@@ -75,7 +75,9 @@ Phase 11: **the differ was never at fault.** `ApiChange` has held `old_value` an
 `new_value` since Phase 1 and the differ populates them; neither the task prompt
 nor `inspect_api_change` rendered them. The agent was told a value had been
 removed and another added at the same field and never which, so inventing one was
-the only move left. Fixed in ADR-060.
+the only move left. Fixed in ADR-060, after which the case passed three times out
+of three — the first passes in seventeen runs. The full comparison and ablation
+have not been re-run, so no aggregate figure on this page has moved.
 
 **Instrumentation fixed along the way.** The published benchmark JSON recorded only
 `status`, which collapses `weakened` and `regressed` into `unverified` — so the
