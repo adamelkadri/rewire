@@ -1461,3 +1461,32 @@ keyboard, and a pull request is how its work should reach a repository.
 properties mean there are two ways to read the same value. The alternative —
 validating the dangerous fields at the boundary — leaves them reachable, which is
 the thing this was meant to stop.
+
+---
+
+## ADR-062 — The pipeline takes its wiring, not the settings object
+
+**Decision.** `run_migration` no longer accepts `Settings` and a provider and
+assemble itself. It takes a `MigrationRuntime`: how to build the agent, the
+sandbox policy, the token ceiling, where artefacts go, and the verifier.
+`MigrationRuntime.from_settings` is the single place that reads `Settings`.
+
+**Why.** Wiring inside the pipeline is the right shape for a command-line tool,
+which starts, runs one migration and exits. It is the wrong shape for a server.
+A server wants the expensive parts — the provider, the budget — built once and
+reused across jobs, and it should not consult a process-wide settings singleton
+on every request. Phase 7 recorded this as debt on the day it shipped.
+
+Holding the wiring in one value also makes substitution partial. Before, a caller
+who wanted a different sandbox image had to pass an override *and* still hand in
+`Settings` for everything else; the benchmark and the tests each had their own
+combination of overrides threaded through the same call. Now they replace one
+field of one object.
+
+The agent is built by a factory rather than passed ready-made, because the
+ablation benchmark varies the agent's configuration per run. A pre-built agent
+would have forced the experiment back out into the pipeline.
+
+**Cost.** Callers construct one more object, and `Settings` still exists behind
+`from_settings`, so nothing yet proves the pipeline can run without it. The
+proof will be the HTTP API constructing a runtime from its own configuration.

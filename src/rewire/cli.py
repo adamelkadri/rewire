@@ -88,6 +88,7 @@ from rewire.services import (
     MigrationOutcome,
     MigrationPolicy,
     MigrationRequest,
+    MigrationRuntime,
     MigrationStatus,
     MigrationTask,
     PublishOutcome,
@@ -1455,8 +1456,7 @@ def migrate(
                 max_attempts=max_attempts,
             ),
         ),
-        provider=build_provider(settings.llm),
-        settings=settings,
+        runtime=MigrationRuntime.from_settings(settings, provider=build_provider(settings.llm)),
     )
     _write_diff(outcome.patch, write_patch_to)
     _render_outcome(outcome, show_diff=show_diff)
@@ -1532,12 +1532,15 @@ class _Migrator:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._provider: LLMProvider | None = None
+        self._runtime: MigrationRuntime | None = None
 
     def __call__(self, request: MigrationRequest) -> MigrationOutcome:
         """Run one migration, building the provider on first use."""
         if self._provider is None:
             self._provider = build_provider(self._settings.llm)
-        return run_migration(request, provider=self._provider, settings=self._settings)
+        if self._runtime is None:
+            self._runtime = MigrationRuntime.from_settings(self._settings, provider=self._provider)
+        return run_migration(request, runtime=self._runtime)
 
 
 def _store(settings: Settings) -> WatchStore:

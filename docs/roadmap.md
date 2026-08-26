@@ -799,8 +799,9 @@ debt below.
 - The clean-tree check runs before the model *and* the content check runs before
   the write, but nothing holds a lock in between. A concurrent editor can still
   change a file Rewire is not about to rewrite, and that goes unnoticed.
-- `run_migration` takes settings and does its own wiring. The Phase 13 API will
-  want it to accept an already-built agent and sandbox policy instead.
+- ~~`run_migration` takes settings and does its own wiring. The Phase 13 API will
+  want it to accept an already-built agent and sandbox policy instead.~~
+  **Closed** by ADR-062: it takes a `MigrationRuntime`.
 
 ## Known technical debt carried out of Phase 6
 

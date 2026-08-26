@@ -39,6 +39,7 @@ from rewire.sandbox.verifier import verify
 from rewire.services.migrate import (
     MigrationPolicy,
     MigrationRequest,
+    MigrationRuntime,
     MigrationStatus,
     MigrationTask,
     run_migration,
@@ -373,10 +374,12 @@ def evaluate_case(
                     require_affected_code=arm.require_affected_code,
                 ),
             ),
-            provider=provider,
-            settings=settings,
-            verification=verification,
-            verifier=verifier,
+            runtime=MigrationRuntime.from_settings(
+                settings,
+                provider=provider,
+                verification=verification,
+                verifier=verifier,
+            ),
         )
     except Exception as exc:
         logger.warning("benchmark_case_failed", case=case.case_id, arm=arm.name, error=str(exc))

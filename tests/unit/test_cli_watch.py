@@ -322,7 +322,7 @@ def test_an_acting_watch_runs_the_pipeline_and_prints_both_results(
     monkeypatch.setattr(
         cli,
         "run_migration",
-        lambda request, *, provider, settings: MigrationOutcome(
+        lambda request, *, runtime: MigrationOutcome(
             run_id="run-1", status=MigrationStatus.VERIFIED
         ),
     )

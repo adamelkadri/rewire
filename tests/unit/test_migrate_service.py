@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from rewire.agents.config import DEFAULT_AGENT_CONFIG
 from rewire.core.config import Settings
 from rewire.gitio import inspect_working_tree
 from rewire.llm import ScriptBuilder, ScriptedProvider
@@ -24,10 +25,12 @@ from rewire.sandbox.models import (
     CommandOutcome,
     Verdict,
     VerificationReport,
+    VerificationRequest,
 )
 from rewire.services import (
     MigrationPolicy,
     MigrationRequest,
+    MigrationRuntime,
     MigrationStatus,
     MigrationTask,
     run_migration,
@@ -137,9 +140,9 @@ def migrate(
             ),
             policy=MigrationPolicy(**kwargs),  # type: ignore[arg-type]
         ),
-        provider=provider,
-        settings=settings,
-        verifier=verifier_saying(verdict),
+        runtime=MigrationRuntime.from_settings(
+            settings, provider=provider, verifier=verifier_saying(verdict)
+        ),
     )
 
 
@@ -245,9 +248,9 @@ def test_writing_outside_a_git_repository_is_refused(tmp_path: Path, settings: S
             ),
             policy=MigrationPolicy(apply=True),
         ),
-        provider=provider_editing(),
-        settings=settings,
-        verifier=verifier_saying(Verdict.VERIFIED),
+        runtime=MigrationRuntime.from_settings(
+            settings, provider=provider_editing(), verifier=verifier_saying(Verdict.VERIFIED)
+        ),
     )
     assert outcome.status is MigrationStatus.REFUSED
     assert "not a Git repository" in outcome.refusal
@@ -273,9 +276,9 @@ def test_a_repository_that_moved_after_verification_is_refused(
             ),
             policy=MigrationPolicy(apply=True, allow_dirty=True),
         ),
-        provider=provider_editing(),
-        settings=settings,
-        verifier=verify_then_move,
+        runtime=MigrationRuntime.from_settings(
+            settings, provider=provider_editing(), verifier=verify_then_move
+        ),
     )
     assert outcome.status is MigrationStatus.REFUSED
     assert "changed since the patch was proposed" in outcome.refusal
@@ -374,3 +377,48 @@ def test_a_task_carries_no_authority_at_all() -> None:
     fields = set(MigrationTask.__dataclass_fields__)
     assert fields == {"repository", "old_spec", "new_spec", "packages"}
     assert not fields & set(MigrationPolicy.__dataclass_fields__)
+
+
+# ----------------------------------------------------------------- runtime ---
+
+
+def test_a_runtime_builds_the_agent_once_per_run_not_once_per_process(
+    tmp_path: Path,
+) -> None:
+    """What a server needs: the expensive parts built once and reused.
+
+    The factory takes the configuration because the ablation benchmark varies it
+    per run; everything else passes the shipped one, so the provider, the budget
+    and the runs directory are resolved a single time.
+    """
+    settings = Settings(data_dir=tmp_path / ".rewire")
+    provider = ScriptBuilder().says("done").build()
+    runtime = MigrationRuntime.from_settings(settings, provider=provider)
+
+    first = runtime.build_agent(DEFAULT_AGENT_CONFIG)
+    second = runtime.build_agent(DEFAULT_AGENT_CONFIG)
+    assert first is not second
+    assert runtime.runs_dir == settings.runs_dir
+    assert runtime.max_tokens_per_attempt == settings.agent.max_tokens_per_task
+
+
+def test_a_runtime_carries_a_sandbox_policy_a_caller_can_replace(tmp_path: Path) -> None:
+    """A deployment sets its own limits without reimplementing the wiring."""
+    settings = Settings(data_dir=tmp_path / ".rewire")
+    provider = ScriptBuilder().says("done").build()
+
+    default = MigrationRuntime.from_settings(settings, provider=provider)
+    assert default.verification.image == settings.sandbox.image
+
+    override = MigrationRuntime.from_settings(
+        settings, provider=provider, verification=VerificationRequest(image="python:3.13-slim")
+    )
+    assert override.verification.image == "python:3.13-slim"
+
+
+def test_building_a_runtime_creates_the_directories_it_promises(tmp_path: Path) -> None:
+    """The one place that reads Settings, so it is the one place that prepares."""
+    settings = Settings(data_dir=tmp_path / ".rewire")
+    assert not settings.runs_dir.exists()
+    MigrationRuntime.from_settings(settings, provider=ScriptBuilder().says("done").build())
+    assert settings.runs_dir.is_dir()

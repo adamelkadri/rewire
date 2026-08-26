@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -255,23 +256,83 @@ class MigrationOutcome:
                 return "no patch was produced"
 
 
+#: Builds the agent for one run. Takes the configuration because the ablation
+#: benchmark varies it per run; every other caller passes the shipped one.
+AgentFactory = Callable[[AgentConfig], MigrationAgent]
+
+
+@dataclass(frozen=True, slots=True)
+class MigrationRuntime:
+    """Everything a run needs that is not the request.
+
+    ``run_migration`` used to take :class:`Settings` and wire itself up: build a
+    provider's agent, translate the settings block into a sandbox policy, decide
+    where artefacts go. That is the right shape for a command-line tool, which
+    starts, does one migration and exits. It is the wrong shape for a server,
+    which wants to build the expensive parts once and reuse them across jobs, and
+    which should not be reading a process-wide settings singleton per request.
+
+    Holding the wiring in one value also means a caller can replace exactly one
+    piece — a sandbox policy, the verifier — without reimplementing the rest.
+    """
+
+    build_agent: AgentFactory
+    #: Sandbox policy for every verification in the run.
+    verification: VerificationRequest
+    #: Ceiling on tokens for a single attempt. The repair budget is a multiple.
+    max_tokens_per_attempt: int
+    #: Where run artefacts are written.
+    runs_dir: Path
+    #: The verification step. ``None`` uses the real sandbox.
+    verifier: VerifyCallable | None = None
+
+    @classmethod
+    def from_settings(
+        cls,
+        settings: Settings,
+        *,
+        provider: LLMProvider,
+        verification: VerificationRequest | None = None,
+        verifier: VerifyCallable | None = None,
+    ) -> MigrationRuntime:
+        """Wire a runtime the way the command-line tool does.
+
+        The one place that reads :class:`Settings`, so everything downstream
+        takes values rather than a configuration object.
+        """
+        settings.ensure_data_dirs()
+        budget = AgentBudget(
+            max_tokens=settings.agent.max_tokens_per_task,
+            max_files=settings.agent.max_files_per_patch,
+            max_output_tokens=settings.llm.max_output_tokens,
+        )
+        runs_dir = settings.runs_dir
+
+        def build_agent(config: AgentConfig) -> MigrationAgent:
+            return MigrationAgent(provider, budget=budget, runs_dir=runs_dir, config=config)
+
+        return cls(
+            build_agent=build_agent,
+            verification=verification or _sandbox_request(settings),
+            max_tokens_per_attempt=settings.agent.max_tokens_per_task,
+            runs_dir=runs_dir,
+            verifier=verifier,
+        )
+
+
 def run_migration(
     request: MigrationRequest,
     *,
-    provider: LLMProvider,
-    settings: Settings,
-    verification: VerificationRequest | None = None,
-    verifier: VerifyCallable | None = None,
+    runtime: MigrationRuntime,
     run_id: str | None = None,
 ) -> MigrationOutcome:
     """Run the whole pipeline and, if asked and permitted, write the result.
 
     Args:
         request: What to migrate and how far to go.
-        provider: The model the agent will use.
-        settings: Budgets, sandbox policy and where run artefacts are written.
-        verification: Sandbox policy override.
-        verifier: The verification step, injected for testing.
+        runtime: The wiring — how to build the agent, the sandbox policy, where
+            artefacts go. Built once and reused by a server; built per command by
+            the CLI.
         run_id: Identifier for this run's artefacts; generated if absent.
 
     Raises:
@@ -309,7 +370,7 @@ def run_migration(
             status=status.value,
             written=len(outcome.written),
         )
-        _record(settings, outcome)
+        _record(runtime.runs_dir, outcome)
         return outcome
 
     changes = diff_specs(load_spec(request.old_spec), load_spec(request.new_spec))
@@ -335,30 +396,19 @@ def run_migration(
             working_tree=tree,
         )
 
-    settings.ensure_data_dirs()
-    agent = MigrationAgent(
-        provider,
-        budget=AgentBudget(
-            max_tokens=settings.agent.max_tokens_per_task,
-            max_files=settings.agent.max_files_per_patch,
-            max_output_tokens=settings.llm.max_output_tokens,
-        ),
-        runs_dir=settings.runs_dir,
-        config=request.agent,
-    )
     repair = migrate_with_repair(
-        agent=agent,
+        agent=runtime.build_agent(request.agent),
         repository=request.repository,
         workspace=Workspace.open(request.repository),
         index=index,
         changes=changes,
         impact=impact,
-        request=verification or _sandbox_request(settings),
+        request=runtime.verification,
         policy=RepairPolicy(
             max_attempts=request.max_attempts,
-            max_total_tokens=settings.agent.max_tokens_per_task * max(request.max_attempts, 1),
+            max_total_tokens=runtime.max_tokens_per_attempt * max(request.max_attempts, 1),
         ),
-        verifier=verifier,
+        verifier=runtime.verifier,
         run_id=identifier,
     )
 
@@ -406,14 +456,14 @@ def _sandbox_request(settings: Settings) -> VerificationRequest:
     )
 
 
-def _record(settings: Settings, outcome: MigrationOutcome) -> None:
+def _record(runs_dir: Path, outcome: MigrationOutcome) -> None:
     """Write a machine-readable record of the run beside its traces.
 
     Phase 8 aggregates these into a success rate, so it is written for every
     terminal status including the ones where nothing happened -- a dataset of
     only the interesting runs is a dataset with a hole in it.
     """
-    directory = settings.runs_dir / outcome.run_id
+    directory = runs_dir / outcome.run_id
     payload = {
         "run_id": outcome.run_id,
         "status": outcome.status.value,
@@ -449,6 +499,7 @@ __all__ = [
     "MigrationOutcome",
     "MigrationPolicy",
     "MigrationRequest",
+    "MigrationRuntime",
     "MigrationStatus",
     "MigrationTask",
     "run_migration",
