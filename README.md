@@ -66,6 +66,7 @@ src/rewire/
   evals/       benchmark datasets, runners, metrics                  (Phase 3)
   gitio/       Git reads, Git writes, and pull requests               (Phase 11)
   watch/       following an upstream spec and acting when it moves    (Phase 12)
+  jobs/        durable queue and the worker that drains it            (Phase 13)
   api/         FastAPI surface                                       (Phase 13)
   models/      persistence models and shared schemas
 tests/         unit, integration and fixtures
@@ -543,6 +544,64 @@ it was never offered ([ADR-044](docs/decisions.md)).
 made before Rewire could refuse a patch that weakened the tests. Case 08's three
 overclaims in the first run became zero here, matching the model comparison
 exactly.
+
+## Queue it instead of waiting
+
+```bash
+uv run rewire jobs submit ./repo --old old-spec.yaml --new new-spec.yaml   # returns at once
+uv run rewire worker                                                       # drains the queue
+uv run rewire jobs show <id>                                               # what happened
+```
+
+A migration takes one to two minutes, which is longer than any HTTP request
+should be held open. Submitting returns an identifier immediately; a worker runs
+the work; the run record answers what happened.
+
+**The queue is one SQLite table, and a claim is a single guarded `UPDATE`**
+([ADR-064](docs/decisions.md)). Selecting a candidate and then updating it is a
+race two workers can both win, so the update names the state it expected and the
+loser affects zero rows and takes the next candidate. The same statement runs on
+Postgres — the correctness does not rest on SQLite's locking.
+
+A claim carries a **lease**, because a worker killed mid-migration releases
+nothing and a job stuck in `running` is a job nobody will ever redo. A job that
+exhausts its attempts fails permanently rather than taking down a worker every
+lease period. And **every write names the worker**, so a worker whose lease
+expired while it worked cannot overwrite the result of the worker that has since
+taken the job — the first version guarded only the claim, and a test written to
+assert that property found it.
+
+**A queued migration never writes to a working tree.** The job carries *what* to
+migrate; whether a patch may be written is the worker's configuration
+([ADR-061](docs/decisions.md)). A payload naming `apply` gets nothing, because a
+task has no field to receive it.
+
+### Demonstrated live
+
+Submit returned in **0.46s**. A worker drained the job in **59s** — first attempt
+`regressed`, second `verified`, both recorded — and the repository was left
+untouched:
+
+```text
+│ 12d0b3b12b4945c9 │ migrate │ SUCCEEDED │     1 │ 12d0b3b12b4945c9 │
+QUEUED 0  RUNNING 0  SUCCEEDED 1  FAILED 0  CANCELLED 0
+```
+
+```json
+"status": "verified",
+"summary": "patch verified across 2 file(s); nothing written",
+"attempts": [
+  {"number": 1, "verdict": "regressed", "files": 1, "tokens": 8384},
+  {"number": 2, "verdict": "verified",  "files": 2, "tokens": 16366}
+]
+```
+
+**One machine only.** SQLite serialises writes, which is adequate for one host
+and is not adequate for several. `REWIRE_DATABASE_URL` has described a
+SQLAlchemy setup this project never had since Phase 0; that is corrected in
+[ADR-065](docs/decisions.md), and **Postgres is unsupported until CI exercises
+it** — which is the condition [ADR-005](docs/decisions.md) set for Phase 13 being
+finished.
 
 ## Notice on its own
 

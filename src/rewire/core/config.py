@@ -157,6 +157,15 @@ class Settings(BaseSettings):
         """Directory holding watch declarations, baselines and check state."""
         return self.data_dir / "watch"
 
+    @property
+    def jobs_path(self) -> Path:
+        """The queue database.
+
+        A file rather than ``database_url``, which has described a SQLAlchemy
+        setup this project never had — see ADR-065.
+        """
+        return self.data_dir / "jobs.db"
+
     def ensure_data_dirs(self) -> None:
         """Create the data directories if they do not already exist."""
         for directory in (self.data_dir, self.index_dir, self.runs_dir, self.watch_dir):

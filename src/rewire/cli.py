@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, assert_never
@@ -74,6 +75,8 @@ from rewire.impact import (
     analyse_impact,
     attach_snippets,
 )
+from rewire.jobs import Job, JobState, JobStore
+from rewire.jobs.worker import IDLE_SLEEP_SECONDS, MIGRATE, build_worker, install_signal_handlers
 from rewire.llm import build_provider
 from rewire.llm.base import LLMProvider
 from rewire.sandbox import (
@@ -101,6 +104,7 @@ from rewire.services import (
     publish,
     run_migration,
 )
+from rewire.services.record import RecordError, read_run
 from rewire.watch import CheckOutcome as WatchOutcome
 from rewire.watch import CheckStatus as WatchCheckStatus
 from rewire.watch import Watch, WatchAction, WatchStore
@@ -1814,6 +1818,172 @@ def watch_check(
 
     if code:
         raise typer.Exit(code=code)
+
+
+# -------------------------------------------------------------------- jobs ---
+
+jobs_app = typer.Typer(
+    help="Queue migrations and run them in the background.", no_args_is_help=True
+)
+app.add_typer(jobs_app, name="jobs")
+
+
+def _queue(settings: Settings) -> JobStore:
+    settings.ensure_data_dirs()
+    return JobStore(settings.jobs_path)
+
+
+_JOB_STATE_MARKUP: dict[JobState, str] = {
+    JobState.QUEUED: "[dim]QUEUED[/dim]",
+    JobState.RUNNING: "[cyan]RUNNING[/cyan]",
+    JobState.SUCCEEDED: "[green]SUCCEEDED[/green]",
+    JobState.FAILED: "[red]FAILED[/red]",
+    JobState.CANCELLED: "[yellow]CANCELLED[/yellow]",
+}
+
+
+def _render_jobs(items: Sequence[Job]) -> None:
+    if not items:
+        console.print("[dim]No jobs.[/dim]")
+        return
+    table = Table(title="Jobs", title_justify="left", title_style="bold cyan")
+    table.add_column("Id", style="bold", no_wrap=True)
+    table.add_column("Kind", no_wrap=True)
+    table.add_column("State", no_wrap=True)
+    table.add_column("Tries", justify="right", no_wrap=True)
+    table.add_column("Detail", overflow="fold")
+    for job in items:
+        detail = job.run_id or job.error or job.worker
+        table.add_row(
+            escape(job.id),
+            escape(job.kind),
+            _JOB_STATE_MARKUP[job.state],
+            str(job.attempts),
+            escape(detail),
+        )
+    console.print(table)
+
+
+@jobs_app.command("submit")
+def jobs_submit(
+    repo: Annotated[
+        Path, typer.Argument(exists=True, file_okay=False, readable=True, help="Repository root.")
+    ],
+    old_spec: Annotated[
+        Path, typer.Option("--old", exists=True, dir_okay=False, help="Previous OpenAPI spec.")
+    ],
+    new_spec: Annotated[
+        Path, typer.Option("--new", exists=True, dir_okay=False, help="New OpenAPI spec.")
+    ],
+    package: Annotated[
+        list[str] | None, typer.Option("--package", help="Package the API belongs to.")
+    ] = None,
+) -> None:
+    """Queue a migration for a worker to run.
+
+    Returns immediately with an identifier. A migration takes one to two
+    minutes, which is why this is a queue and not a wait.
+
+    The job carries *what* to migrate and nothing else. Whether a patch may be
+    written is the worker's configuration, not this command's, so a queued
+    migration cannot edit a working tree however it was submitted.
+    """
+    store = _queue(get_settings())
+    job = store.submit(
+        MIGRATE,
+        {
+            "repository": str(repo.resolve()),
+            "old_spec": str(old_spec.resolve()),
+            "new_spec": str(new_spec.resolve()),
+            "packages": list(package or ()),
+        },
+    )
+    console.print(f"[green]queued[/green] [bold]{escape(job.id)}[/bold]")
+    console.print("[dim]Run a worker to execute it: rewire worker[/dim]")
+
+
+@jobs_app.command("list")
+def jobs_list(
+    state: Annotated[
+        list[JobState] | None, typer.Option("--state", help="Show only these states.")
+    ] = None,
+    limit: Annotated[int, typer.Option("--limit", min=1, help="Most to show.")] = 50,
+) -> None:
+    """List queued and finished jobs, oldest first."""
+    store = _queue(get_settings())
+    _render_jobs(store.list_jobs(states=list(state or ()), limit=limit))
+    counts = store.counts()
+    console.print("  ".join(f"{_JOB_STATE_MARKUP[item]} {counts[item]}" for item in JobState))
+
+
+@jobs_app.command("show")
+def jobs_show(
+    job_id: Annotated[str, typer.Argument(help="Job to describe.")],
+) -> None:
+    """Print one job, and the run record it produced if it has one."""
+    settings = get_settings()
+    job = _queue(settings).get(job_id)
+    console.print(f"{_JOB_STATE_MARKUP[job.state]}  {escape(job.describe())}")
+    console.print_json(json.dumps(job.payload, indent=2))
+
+    if job.run_id:
+        try:
+            record = read_run(settings.runs_dir, job.run_id)
+        except RecordError as exc:
+            console.print(f"[yellow]no run record[/yellow]: {escape(str(exc))}")
+            return
+        console.print_json(record.to_json())
+
+
+@jobs_app.command("cancel")
+def jobs_cancel(
+    job_id: Annotated[str, typer.Argument(help="Job to withdraw.")],
+) -> None:
+    """Withdraw a job that has not finished.
+
+    A running job is marked cancelled rather than interrupted: nothing here can
+    reach into the worker's process, and saying otherwise would be worse than
+    saying so.
+    """
+    job = _queue(get_settings()).cancel(job_id)
+    console.print(f"[yellow]cancelled[/yellow] {escape(job.id)}")
+
+
+@app.command()
+def worker(
+    name: Annotated[str, typer.Option("--name", help="Worker name, for the logs.")] = "",
+    max_jobs: Annotated[
+        int, typer.Option("--max-jobs", min=0, help="Exit after this many jobs. 0 is forever.")
+    ] = 0,
+    poll_seconds: Annotated[
+        float, typer.Option("--poll", min=0.1, help="Seconds to wait when the queue is empty.")
+    ] = IDLE_SLEEP_SECONDS,
+) -> None:
+    """Run queued migrations until stopped.
+
+    One worker, one machine, one queue. On SIGINT or SIGTERM it finishes the job
+    in hand and then exits, because interrupting a migration half way leaves a
+    container running and a patch unverified — and the queue redoes an abandoned
+    job on its own once the lease expires.
+
+    A queued migration never writes to a working tree. It produces a verified
+    patch and a run record; `rewire migrate --pull-request` is how a change
+    reaches a repository.
+    """
+    settings = get_settings()
+    store = _queue(settings)
+    runner = build_worker(
+        store,
+        runtime=MigrationRuntime.from_settings(settings, provider=build_provider(settings.llm)),
+        name=name,
+    )
+    install_signal_handlers(runner)
+    console.print(
+        f"[green]worker[/green] [bold]{escape(runner.name)}[/bold] "
+        f"draining {escape(str(settings.jobs_path))}"
+    )
+    completed = runner.run_forever(max_jobs=max_jobs, idle_sleep=poll_seconds)
+    console.print(f"[green]worker stopped[/green] after {completed} job(s)")
 
 
 def main() -> None:
