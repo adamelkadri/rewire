@@ -306,3 +306,37 @@ def test_a_worker_with_nothing_to_do_exits_when_bounded(
     result = runner.invoke(app, ["worker", "--poll", "0.1"])
     assert result.exit_code == 0
     assert "after 0 job(s)" in flat(result.output)
+
+
+# ------------------------------------------------------------------- serve ---
+
+
+def test_serve_refuses_without_a_token(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command fails to start rather than serving something unprotected."""
+    monkeypatch.setenv("REWIRE_API__ALLOWED_ROOTS", str(project))
+    get_settings.cache_clear()
+    result = runner.invoke(app, ["serve"])
+    assert result.exit_code != 0
+
+
+def test_serve_binds_what_it_was_configured_with(
+    project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Uvicorn is replaced: what is asserted is the wiring, not the server."""
+    import rewire.cli as cli_module
+
+    bound: dict[str, object] = {}
+    monkeypatch.setattr(
+        cli_module.uvicorn,
+        "run",
+        lambda application, **kwargs: bound.update(kwargs),
+    )
+    monkeypatch.setenv("REWIRE_API__TOKEN", "secret")
+    monkeypatch.setenv("REWIRE_API__ALLOWED_ROOTS", str(project))
+    get_settings.cache_clear()
+
+    result = runner.invoke(app, ["serve", "--port", "9999"])
+    assert result.exit_code == 0, result.output
+    assert bound["host"] == "127.0.0.1"
+    assert bound["port"] == 9999
+    get_settings.cache_clear()

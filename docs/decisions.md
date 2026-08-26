@@ -1636,3 +1636,40 @@ work reaches a repository as a pull request.
 **Cost.** A crash inside a handler is caught broadly so one bad job cannot end a
 process that could still run the others, which means a genuine bug is recorded
 as a failed job rather than surfacing as a stack trace in the foreground.
+
+---
+
+## ADR-067 — The HTTP API fails closed twice, and never runs a migration
+
+**Decision.** `create_app` refuses to build without a bearer token *and* without
+an allowlist of repository roots. Every path in a request body is resolved and
+checked against that allowlist before anything else happens. No handler runs a
+migration: a request queues a job and returns `202` with an identifier.
+
+**Why two refusals rather than defaults.** This is the most dangerous component
+in the project. A migration reads a repository, calls a model, and starts a
+container that executes code Rewire did not write, so exposing it over HTTP
+exposes all of that. A token with a development default is a token somebody ships;
+an unset allowlist means a request body chooses which directory on the host gets
+a container. Both are the kind of failure discovered by being exploited rather
+than by being told, so the process declines to start instead.
+
+Paths are resolved *before* they are compared, so `..` and symlinks are judged by
+where they lead rather than by how they are spelled — a symlink out of an allowed
+root is refused, because the container would follow it too.
+
+**Why the API cannot express a write.** `MigrationSubmission` mirrors
+`MigrationTask` exactly and forbids unknown fields. There is no `apply`, no
+`allow_dirty`, and a body containing one is a 422. That is ADR-061 reaching its
+destination: the request describes work, the deployment grants authority, and no
+code path joins them.
+
+**Why 202 and not 200.** A migration takes one to two minutes. Holding a
+connection open for that is how a proxy timeout becomes a lost run, and a caller
+that got `200` would reasonably believe the work was done.
+
+**Cost.** The token is compared with `==` rather than a constant-time digest,
+which is defensible for a shared secret on a trusted network and is not a
+password store; it is noted in the code rather than glossed. Single shared token
+means no per-caller identity, no revocation of one client, and no audit of who
+asked for what — all of which multi-tenancy would need.

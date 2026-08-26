@@ -11,13 +11,14 @@ Secrets are held as :class:`pydantic.SecretStr` so that they are redacted by
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class LogFormat(StrEnum):
@@ -105,6 +106,40 @@ class WatchSettings(BaseModel):
         return self.max_spec_mb * 1024 * 1024
 
 
+class ApiSettings(BaseModel):
+    """How the HTTP surface is allowed to behave.
+
+    The API can start a container that runs code from a repository it was
+    handed, which makes it the most dangerous thing to expose in this project.
+    Both controls here fail closed: without a token nothing is served, and
+    without an allowlist no repository is accepted.
+    """
+
+    host: str = "127.0.0.1"
+    port: int = Field(default=8000, gt=0, le=65535)
+    #: Shared bearer token. The API refuses to start without one.
+    token: SecretStr | None = None
+    #: Repository roots a request may name. A request path must be inside one.
+    #: ``NoDecode`` because pydantic-settings would otherwise try to read the
+    #: environment value as JSON, and the documented form is a plain
+    #: colon-separated list of paths. Found by running the command rather than
+    #: by constructing the model, which is the only place the difference shows.
+    allowed_roots: Annotated[tuple[Path, ...], NoDecode] = ()
+
+    @field_validator("allowed_roots", mode="before")
+    @classmethod
+    def _split_roots(cls, value: object) -> object:
+        """Accept a colon- or comma-separated list from the environment."""
+        if isinstance(value, str):
+            return tuple(part for part in re.split(r"[,:]", value) if part.strip())
+        return value
+
+    @field_validator("allowed_roots", mode="after")
+    @classmethod
+    def _resolve_roots(cls, value: tuple[Path, ...]) -> tuple[Path, ...]:
+        return tuple(path.expanduser().resolve() for path in value)
+
+
 class Settings(BaseSettings):
     """Top-level application settings."""
 
@@ -136,6 +171,7 @@ class Settings(BaseSettings):
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     watch: WatchSettings = Field(default_factory=WatchSettings)
+    api: ApiSettings = Field(default_factory=ApiSettings)
 
     @field_validator("data_dir")
     @classmethod
@@ -185,6 +221,7 @@ def get_settings() -> Settings:
 
 __all__ = [
     "AgentSettings",
+    "ApiSettings",
     "LLMSettings",
     "LogFormat",
     "LogLevel",

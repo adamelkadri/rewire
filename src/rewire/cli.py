@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Annotated, assert_never
 
 import typer
+import uvicorn
 from rich.console import Console
 from rich.markup import escape
 from rich.syntax import Syntax
@@ -38,6 +39,7 @@ from rewire.analyzers import (
     get_backend,
     resolve_repository_root,
 )
+from rewire.api import create_app
 from rewire.changes import ApiChange, ChangeReport, Severity, diff_specs, load_spec
 from rewire.core.config import LogLevel, Settings, get_settings
 from rewire.core.doctor import CheckStatus, DoctorReport, run_checks
@@ -1984,6 +1986,40 @@ def worker(
     )
     completed = runner.run_forever(max_jobs=max_jobs, idle_sleep=poll_seconds)
     console.print(f"[green]worker stopped[/green] after {completed} job(s)")
+
+
+@app.command()
+def serve(
+    host: Annotated[str, typer.Option("--host", help="Address to bind.")] = "",
+    port: Annotated[
+        int,
+        typer.Option("--port", min=0, max=65535, help="Port to bind. 0 uses the configured one."),
+    ] = 0,
+    reload: Annotated[bool, typer.Option("--reload", help="Restart on code changes.")] = False,
+) -> None:
+    """Serve the HTTP API.
+
+    Queues migrations and reports on them; it never runs one. A worker does the
+    work, so `rewire serve` and `rewire worker` are two processes and the API
+    stays responsive while a migration takes its two minutes.
+
+    Refuses to start without REWIRE_API__TOKEN and REWIRE_API__ALLOWED_ROOTS.
+    The API can start a container that executes code from a repository it was
+    handed, and both of those failures are ones somebody would otherwise
+    discover by being exploited rather than by being told.
+
+    Binds 127.0.0.1 by default. Exposing it further is a decision to make
+    deliberately, with a reverse proxy and TLS in front.
+    """
+    settings = get_settings()
+    application = create_app(settings)
+    bind_host = host or settings.api.host
+    bind_port = port or settings.api.port
+    console.print(
+        f"[green]serving[/green] http://{escape(bind_host)}:{bind_port} "
+        f"[dim]({len(settings.api.allowed_roots)} allowed root(s))[/dim]"
+    )
+    uvicorn.run(application, host=bind_host, port=bind_port, reload=reload, log_config=None)
 
 
 def main() -> None:

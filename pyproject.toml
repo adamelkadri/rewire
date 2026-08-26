@@ -29,6 +29,8 @@ dependencies = [
   "typer>=0.12,<1",
   "rich>=13.8",
   "structlog>=24.4",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
 ]
 
 [project.optional-dependencies]
