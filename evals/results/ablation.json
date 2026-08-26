@@ -21,9 +21,9 @@
           "files_changed": 2,
           "attempts": 1,
           "repaired": false,
-          "tokens": 8211,
-          "cost_usd": 0.01635,
-          "duration_seconds": 47.88,
+          "tokens": 7955,
+          "cost_usd": 0.0161525,
+          "duration_seconds": 39.5,
           "error": ""
         },
         {
@@ -42,9 +42,9 @@
           "files_changed": 4,
           "attempts": 2,
           "repaired": true,
-          "tokens": 20666,
-          "cost_usd": 0.0413925,
-          "duration_seconds": 78.55,
+          "tokens": 21209,
+          "cost_usd": 0.043000000000000003,
+          "duration_seconds": 65.61,
           "error": ""
         },
         {
@@ -62,9 +62,9 @@
           "files_changed": 1,
           "attempts": 1,
           "repaired": false,
-          "tokens": 11956,
-          "cost_usd": 0.02062,
-          "duration_seconds": 46.86,
+          "tokens": 8356,
+          "cost_usd": 0.0149675,
+          "duration_seconds": 39.12,
           "error": ""
         },
         {
@@ -76,16 +76,16 @@
             "shape:single-module",
             "difficulty:direction"
           ],
-          "status": "unverified",
-          "claimed_verified": false,
+          "status": "verified",
+          "claimed_verified": true,
           "truly_correct": false,
           "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
           "files_changed": 2,
-          "attempts": 3,
-          "repaired": false,
-          "tokens": 39674,
-          "cost_usd": 0.07947,
-          "duration_seconds": 113.76,
+          "attempts": 2,
+          "repaired": true,
+          "tokens": 21120,
+          "cost_usd": 0.03897,
+          "duration_seconds": 67.59,
           "error": ""
         },
         {
@@ -101,11 +101,11 @@
           "truly_correct": false,
           "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
           "files_changed": 2,
-          "attempts": 2,
-          "repaired": true,
-          "tokens": 20484,
-          "cost_usd": 0.03681,
-          "duration_seconds": 71.95,
+          "attempts": 1,
+          "repaired": false,
+          "tokens": 13185,
+          "cost_usd": 0.026015,
+          "duration_seconds": 46.51,
           "error": ""
         },
         {
@@ -123,9 +123,9 @@
           "files_changed": 1,
           "attempts": 1,
           "repaired": false,
-          "tokens": 11276,
-          "cost_usd": 0.020515000000000002,
-          "duration_seconds": 46.13,
+          "tokens": 5903,
+          "cost_usd": 0.011765000000000001,
+          "duration_seconds": 40.52,
           "error": ""
         },
         {
@@ -160,14 +160,14 @@
           ],
           "status": "verified",
           "claimed_verified": true,
-          "truly_correct": false,
-          "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
+          "truly_correct": true,
+          "grading_detail": "the hidden contract test passed",
           "files_changed": 2,
-          "attempts": 1,
-          "repaired": false,
-          "tokens": 10827,
-          "cost_usd": 0.022184999999999996,
-          "duration_seconds": 47.54,
+          "attempts": 2,
+          "repaired": true,
+          "tokens": 20775,
+          "cost_usd": 0.040005,
+          "duration_seconds": 67.12,
           "error": ""
         },
         {
@@ -187,7 +187,7 @@
           "repaired": false,
           "tokens": 0,
           "cost_usd": 0.0,
-          "duration_seconds": 0.02,
+          "duration_seconds": 0.0,
           "error": ""
         },
         {
@@ -206,9 +206,9 @@
           "files_changed": 2,
           "attempts": 2,
           "repaired": true,
-          "tokens": 19816,
-          "cost_usd": 0.0370625,
-          "duration_seconds": 71.44,
+          "tokens": 18626,
+          "cost_usd": 0.035715,
+          "duration_seconds": 61.83,
           "error": ""
         }
       ]
@@ -234,9 +234,9 @@
           "files_changed": 2,
           "attempts": 1,
           "repaired": false,
-          "tokens": 8463,
-          "cost_usd": 0.0171775,
-          "duration_seconds": 53.02,
+          "tokens": 9875,
+          "cost_usd": 0.0211725,
+          "duration_seconds": 42.86,
           "error": ""
         },
         {
@@ -255,9 +255,9 @@
           "files_changed": 4,
           "attempts": 1,
           "repaired": false,
-          "tokens": 12966,
-          "cost_usd": 0.02918,
-          "duration_seconds": 59.08,
+          "tokens": 13437,
+          "cost_usd": 0.02815,
+          "duration_seconds": 45.07,
           "error": ""
         },
         {
@@ -275,9 +275,9 @@
           "files_changed": 1,
           "attempts": 1,
           "repaired": false,
-          "tokens": 11646,
-          "cost_usd": 0.02006,
-          "duration_seconds": 49.16,
+          "tokens": 11627,
+          "cost_usd": 0.020425,
+          "duration_seconds": 43.33,
           "error": ""
         },
         {
@@ -296,9 +296,9 @@
           "files_changed": 2,
           "attempts": 1,
           "repaired": false,
-          "tokens": 10232,
-          "cost_usd": 0.019225000000000003,
-          "duration_seconds": 48.23,
+          "tokens": 10850,
+          "cost_usd": 0.02169,
+          "duration_seconds": 42.47,
           "error": ""
         },
         {
@@ -309,16 +309,16 @@
             "change:enum-removed",
             "shape:single-module"
           ],
-          "status": "unverified",
-          "claimed_verified": false,
+          "status": "verified",
+          "claimed_verified": true,
           "truly_correct": false,
-          "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: syntax, tests",
+          "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
           "files_changed": 2,
-          "attempts": 2,
+          "attempts": 1,
           "repaired": false,
-          "tokens": 26169,
-          "cost_usd": 0.04776,
-          "duration_seconds": 82.8,
+          "tokens": 8162,
+          "cost_usd": 0.01755,
+          "duration_seconds": 38.43,
           "error": ""
         },
         {
@@ -336,9 +336,9 @@
           "files_changed": 1,
           "attempts": 1,
           "repaired": false,
-          "tokens": 8846,
-          "cost_usd": 0.0166125,
-          "duration_seconds": 47.44,
+          "tokens": 13889,
+          "cost_usd": 0.02367,
+          "duration_seconds": 45.02,
           "error": ""
         },
         {
@@ -359,7 +359,7 @@
           "repaired": false,
           "tokens": 0,
           "cost_usd": 0.0,
-          "duration_seconds": 0.0,
+          "duration_seconds": 0.01,
           "error": ""
         },
         {
@@ -373,14 +373,14 @@
           ],
           "status": "verified",
           "claimed_verified": true,
-          "truly_correct": false,
-          "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
+          "truly_correct": true,
+          "grading_detail": "the hidden contract test passed",
           "files_changed": 2,
-          "attempts": 1,
-          "repaired": false,
-          "tokens": 10914,
-          "cost_usd": 0.021547499999999997,
-          "duration_seconds": 49.9,
+          "attempts": 2,
+          "repaired": true,
+          "tokens": 24978,
+          "cost_usd": 0.048725000000000004,
+          "duration_seconds": 67.87,
           "error": ""
         },
         {
@@ -419,9 +419,9 @@
           "files_changed": 2,
           "attempts": 1,
           "repaired": false,
-          "tokens": 8332,
-          "cost_usd": 0.016145,
-          "duration_seconds": 45.42,
+          "tokens": 8419,
+          "cost_usd": 0.01688,
+          "duration_seconds": 45.39,
           "error": ""
         }
       ]
@@ -447,9 +447,9 @@
           "files_changed": 2,
           "attempts": 1,
           "repaired": false,
-          "tokens": 9890,
-          "cost_usd": 0.018869999999999998,
-          "duration_seconds": 45.42,
+          "tokens": 10110,
+          "cost_usd": 0.019374999999999996,
+          "duration_seconds": 43.89,
           "error": ""
         },
         {
@@ -468,9 +468,9 @@
           "files_changed": 4,
           "attempts": 1,
           "repaired": false,
-          "tokens": 13203,
-          "cost_usd": 0.028205,
-          "duration_seconds": 48.04,
+          "tokens": 11428,
+          "cost_usd": 0.0256525,
+          "duration_seconds": 44.7,
           "error": ""
         },
         {
@@ -488,9 +488,9 @@
           "files_changed": 1,
           "attempts": 1,
           "repaired": false,
-          "tokens": 6699,
-          "cost_usd": 0.012525,
-          "duration_seconds": 40.48,
+          "tokens": 10143,
+          "cost_usd": 0.017677500000000002,
+          "duration_seconds": 42.5,
           "error": ""
         },
         {
@@ -504,14 +504,14 @@
           ],
           "status": "verified",
           "claimed_verified": true,
-          "truly_correct": true,
-          "grading_detail": "the hidden contract test passed",
+          "truly_correct": false,
+          "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
           "files_changed": 2,
           "attempts": 1,
           "repaired": false,
-          "tokens": 11503,
-          "cost_usd": 0.0210225,
-          "duration_seconds": 48.51,
+          "tokens": 8876,
+          "cost_usd": 0.01882,
+          "duration_seconds": 41.05,
           "error": ""
         },
         {
@@ -529,9 +529,9 @@
           "files_changed": 2,
           "attempts": 1,
           "repaired": false,
-          "tokens": 9576,
-          "cost_usd": 0.0182025,
-          "duration_seconds": 58.66,
+          "tokens": 9891,
+          "cost_usd": 0.0182625,
+          "duration_seconds": 43.47,
           "error": ""
         },
         {
@@ -549,9 +549,9 @@
           "files_changed": 1,
           "attempts": 1,
           "repaired": false,
-          "tokens": 10458,
-          "cost_usd": 0.0198725,
-          "duration_seconds": 52.61,
+          "tokens": 12070,
+          "cost_usd": 0.020215,
+          "duration_seconds": 47.17,
           "error": ""
         },
         {
@@ -570,9 +570,9 @@
           "files_changed": 0,
           "attempts": 1,
           "repaired": false,
-          "tokens": 12592,
-          "cost_usd": 0.022445,
-          "duration_seconds": 10.58,
+          "tokens": 10776,
+          "cost_usd": 0.0198875,
+          "duration_seconds": 9.99,
           "error": ""
         },
         {
@@ -584,16 +584,16 @@
             "shape:wrapper",
             "difficulty:name-collision"
           ],
-          "status": "verified",
-          "claimed_verified": true,
-          "truly_correct": true,
-          "grading_detail": "the hidden contract test passed",
+          "status": "unverified",
+          "claimed_verified": false,
+          "truly_correct": false,
+          "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
           "files_changed": 2,
-          "attempts": 1,
+          "attempts": 3,
           "repaired": false,
-          "tokens": 8532,
-          "cost_usd": 0.017115000000000002,
-          "duration_seconds": 55.61,
+          "tokens": 38006,
+          "cost_usd": 0.072935,
+          "duration_seconds": 93.46,
           "error": ""
         },
         {
@@ -611,9 +611,9 @@
           "files_changed": 0,
           "attempts": 1,
           "repaired": false,
-          "tokens": 6441,
-          "cost_usd": 0.0118975,
-          "duration_seconds": 5.53,
+          "tokens": 7901,
+          "cost_usd": 0.01586,
+          "duration_seconds": 9.87,
           "error": ""
         },
         {
@@ -632,9 +632,9 @@
           "files_changed": 2,
           "attempts": 1,
           "repaired": false,
-          "tokens": 11900,
-          "cost_usd": 0.021814999999999998,
-          "duration_seconds": 49.67,
+          "tokens": 8385,
+          "cost_usd": 0.016630000000000002,
+          "duration_seconds": 42.82,
           "error": ""
         }
       ]
@@ -658,11 +658,11 @@
           "truly_correct": true,
           "grading_detail": "the hidden contract test passed",
           "files_changed": 2,
-          "attempts": 2,
-          "repaired": true,
-          "tokens": 21087,
-          "cost_usd": 0.039575000000000006,
-          "duration_seconds": 79.21,
+          "attempts": 1,
+          "repaired": false,
+          "tokens": 9147,
+          "cost_usd": 0.019014999999999997,
+          "duration_seconds": 46.86,
           "error": ""
         },
         {
@@ -681,9 +681,9 @@
           "files_changed": 3,
           "attempts": 3,
           "repaired": false,
-          "tokens": 44866,
-          "cost_usd": 0.08255499999999999,
-          "duration_seconds": 112.3,
+          "tokens": 57648,
+          "cost_usd": 0.10210999999999999,
+          "duration_seconds": 99.0,
           "error": ""
         },
         {
@@ -701,9 +701,9 @@
           "files_changed": 1,
           "attempts": 1,
           "repaired": false,
-          "tokens": 4913,
-          "cost_usd": 0.012515000000000002,
-          "duration_seconds": 50.3,
+          "tokens": 5251,
+          "cost_usd": 0.011842499999999999,
+          "duration_seconds": 41.15,
           "error": ""
         },
         {
@@ -715,16 +715,16 @@
             "shape:single-module",
             "difficulty:direction"
           ],
-          "status": "no_patch",
-          "claimed_verified": false,
-          "truly_correct": null,
-          "grading_detail": "no patch was produced, so there was nothing to grade",
-          "files_changed": 0,
+          "status": "verified",
+          "claimed_verified": true,
+          "truly_correct": true,
+          "grading_detail": "the hidden contract test passed",
+          "files_changed": 2,
           "attempts": 1,
           "repaired": false,
-          "tokens": 4041,
-          "cost_usd": 0.0107525,
-          "duration_seconds": 5.25,
+          "tokens": 12262,
+          "cost_usd": 0.0252675,
+          "duration_seconds": 46.77,
           "error": ""
         },
         {
@@ -742,9 +742,9 @@
           "files_changed": 2,
           "attempts": 2,
           "repaired": true,
-          "tokens": 25120,
-          "cost_usd": 0.044235,
-          "duration_seconds": 79.54,
+          "tokens": 20421,
+          "cost_usd": 0.04007,
+          "duration_seconds": 71.68,
           "error": ""
         },
         {
@@ -762,9 +762,9 @@
           "files_changed": 1,
           "attempts": 1,
           "repaired": false,
-          "tokens": 6319,
-          "cost_usd": 0.014235000000000001,
-          "duration_seconds": 39.72,
+          "tokens": 7086,
+          "cost_usd": 0.0154625,
+          "duration_seconds": 44.68,
           "error": ""
         },
         {
@@ -785,7 +785,7 @@
           "repaired": false,
           "tokens": 0,
           "cost_usd": 0.0,
-          "duration_seconds": 0.01,
+          "duration_seconds": 0.0,
           "error": ""
         },
         {
@@ -797,16 +797,16 @@
             "shape:wrapper",
             "difficulty:name-collision"
           ],
-          "status": "verified",
-          "claimed_verified": true,
+          "status": "unverified",
+          "claimed_verified": false,
           "truly_correct": false,
           "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
           "files_changed": 2,
-          "attempts": 2,
-          "repaired": true,
-          "tokens": 25617,
-          "cost_usd": 0.04714,
-          "duration_seconds": 88.91,
+          "attempts": 3,
+          "repaired": false,
+          "tokens": 28833,
+          "cost_usd": 0.059805,
+          "duration_seconds": 100.63,
           "error": ""
         },
         {
@@ -826,7 +826,7 @@
           "repaired": false,
           "tokens": 0,
           "cost_usd": 0.0,
-          "duration_seconds": 0.0,
+          "duration_seconds": 0.01,
           "error": ""
         },
         {
@@ -845,9 +845,9 @@
           "files_changed": 2,
           "attempts": 2,
           "repaired": true,
-          "tokens": 22552,
-          "cost_usd": 0.0402175,
-          "duration_seconds": 83.22,
+          "tokens": 27075,
+          "cost_usd": 0.0466125,
+          "duration_seconds": 67.79,
           "error": ""
         }
       ]
@@ -857,7 +857,7 @@
   "model": "gpt-4o",
   "dataset": "evals/datasets/migration",
   "cases": 10,
-  "generated_at": "2026-08-24T10:54:39+00:00",
-  "duration_seconds": 1912.8,
+  "generated_at": "2026-08-26T10:34:33+00:00",
+  "duration_seconds": 1735.8,
   "ungraded_cases": []
 }

@@ -10,6 +10,7 @@
             "arm": "repair",
             "description": "up to three attempts, each told why the last one failed",
             "max_attempts": 3,
+            "harness": "full configuration",
             "outcomes": [
               {
                 "case_id": "01-request-field-renamed",
@@ -26,9 +27,9 @@
                 "files_changed": 2,
                 "attempts": 1,
                 "repaired": false,
-                "tokens": 8816,
-                "cost_usd": 0.0176625,
-                "duration_seconds": 43.12,
+                "tokens": 12714,
+                "cost_usd": 0.022234999999999998,
+                "duration_seconds": 61.63,
                 "error": ""
               },
               {
@@ -45,11 +46,11 @@
                 "truly_correct": true,
                 "grading_detail": "the hidden contract test passed",
                 "files_changed": 4,
-                "attempts": 1,
-                "repaired": false,
-                "tokens": 15247,
-                "cost_usd": 0.030840000000000003,
-                "duration_seconds": 49.81,
+                "attempts": 2,
+                "repaired": true,
+                "tokens": 26962,
+                "cost_usd": 0.060405,
+                "duration_seconds": 89.19,
                 "error": ""
               },
               {
@@ -67,9 +68,9 @@
                 "files_changed": 1,
                 "attempts": 1,
                 "repaired": false,
-                "tokens": 6916,
-                "cost_usd": 0.01274,
-                "duration_seconds": 44.38,
+                "tokens": 6951,
+                "cost_usd": 0.012895,
+                "duration_seconds": 53.27,
                 "error": ""
               },
               {
@@ -81,16 +82,16 @@
                   "shape:single-module",
                   "difficulty:direction"
                 ],
-                "status": "verified",
-                "claimed_verified": true,
-                "truly_correct": false,
-                "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
-                "files_changed": 2,
+                "status": "no_patch",
+                "claimed_verified": false,
+                "truly_correct": null,
+                "grading_detail": "no patch was produced, so there was nothing to grade",
+                "files_changed": 0,
                 "attempts": 1,
                 "repaired": false,
-                "tokens": 13581,
-                "cost_usd": 0.02427,
-                "duration_seconds": 44.49,
+                "tokens": 7827,
+                "cost_usd": 0.0173275,
+                "duration_seconds": 9.86,
                 "error": ""
               },
               {
@@ -108,9 +109,9 @@
                 "files_changed": 2,
                 "attempts": 1,
                 "repaired": false,
-                "tokens": 13817,
-                "cost_usd": 0.02409,
-                "duration_seconds": 44.56,
+                "tokens": 14334,
+                "cost_usd": 0.0258925,
+                "duration_seconds": 59.63,
                 "error": ""
               },
               {
@@ -128,9 +129,9 @@
                 "files_changed": 1,
                 "attempts": 1,
                 "repaired": false,
-                "tokens": 5803,
-                "cost_usd": 0.011690000000000002,
-                "duration_seconds": 48.18,
+                "tokens": 16038,
+                "cost_usd": 0.026792499999999997,
+                "duration_seconds": 59.9,
                 "error": ""
               },
               {
@@ -163,16 +164,16 @@
                   "shape:wrapper",
                   "difficulty:name-collision"
                 ],
-                "status": "verified",
-                "claimed_verified": true,
+                "status": "unverified",
+                "claimed_verified": false,
                 "truly_correct": false,
                 "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
                 "files_changed": 2,
                 "attempts": 2,
-                "repaired": true,
-                "tokens": 22527,
-                "cost_usd": 0.0454175,
-                "duration_seconds": 69.34,
+                "repaired": false,
+                "tokens": 17010,
+                "cost_usd": 0.035475000000000007,
+                "duration_seconds": 90.26,
                 "error": ""
               },
               {
@@ -209,11 +210,11 @@
                 "truly_correct": true,
                 "grading_detail": "the hidden contract test passed",
                 "files_changed": 2,
-                "attempts": 1,
-                "repaired": false,
-                "tokens": 10856,
-                "cost_usd": 0.021062499999999998,
-                "duration_seconds": 42.16,
+                "attempts": 2,
+                "repaired": true,
+                "tokens": 16681,
+                "cost_usd": 0.0317875,
+                "duration_seconds": 91.64,
                 "error": ""
               }
             ]
@@ -223,8 +224,8 @@
         "model": "gpt-4o",
         "dataset": "evals/datasets/migration",
         "cases": 10,
-        "generated_at": "2026-08-24T09:18:44+00:00",
-        "duration_seconds": 386.1,
+        "generated_at": "2026-08-26T09:40:46+00:00",
+        "duration_seconds": 515.4,
         "ungraded_cases": []
       },
       "skipped": "",
@@ -240,6 +241,7 @@
             "arm": "repair",
             "description": "up to three attempts, each told why the last one failed",
             "max_attempts": 3,
+            "harness": "full configuration",
             "outcomes": [
               {
                 "case_id": "01-request-field-renamed",
@@ -254,11 +256,11 @@
                 "truly_correct": true,
                 "grading_detail": "the hidden contract test passed",
                 "files_changed": 2,
-                "attempts": 2,
-                "repaired": true,
-                "tokens": 16942,
-                "cost_usd": 0.0019927499999999997,
-                "duration_seconds": 65.36,
+                "attempts": 1,
+                "repaired": false,
+                "tokens": 12646,
+                "cost_usd": 0.0013326,
+                "duration_seconds": 56.85,
                 "error": ""
               },
               {
@@ -277,9 +279,9 @@
                 "files_changed": 4,
                 "attempts": 2,
                 "repaired": false,
-                "tokens": 34107,
-                "cost_usd": 0.00384885,
-                "duration_seconds": 85.68,
+                "tokens": 33793,
+                "cost_usd": 0.00384315,
+                "duration_seconds": 108.12,
                 "error": ""
               },
               {
@@ -297,9 +299,9 @@
                 "files_changed": 1,
                 "attempts": 1,
                 "repaired": false,
-                "tokens": 6625,
-                "cost_usd": 0.0007199999999999999,
-                "duration_seconds": 44.02,
+                "tokens": 6602,
+                "cost_usd": 0.0007106999999999999,
+                "duration_seconds": 53.31,
                 "error": ""
               },
               {
@@ -311,16 +313,16 @@
                   "shape:single-module",
                   "difficulty:direction"
                 ],
-                "status": "unverified",
-                "claimed_verified": false,
+                "status": "verified",
+                "claimed_verified": true,
                 "truly_correct": false,
                 "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
-                "files_changed": 2,
-                "attempts": 3,
+                "files_changed": 1,
+                "attempts": 1,
                 "repaired": false,
-                "tokens": 27528,
-                "cost_usd": 0.0031642499999999995,
-                "duration_seconds": 111.74,
+                "tokens": 6706,
+                "cost_usd": 0.0007524,
+                "duration_seconds": 38.75,
                 "error": ""
               },
               {
@@ -336,11 +338,11 @@
                 "truly_correct": false,
                 "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
                 "files_changed": 2,
-                "attempts": 1,
-                "repaired": false,
-                "tokens": 20734,
-                "cost_usd": 0.0020044499999999996,
-                "duration_seconds": 49.01,
+                "attempts": 3,
+                "repaired": true,
+                "tokens": 44561,
+                "cost_usd": 0.004840799999999999,
+                "duration_seconds": 104.14,
                 "error": ""
               },
               {
@@ -351,16 +353,16 @@
                   "change:field-renamed",
                   "shape:raw-http"
                 ],
-                "status": "unverified",
-                "claimed_verified": false,
-                "truly_correct": false,
-                "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
-                "files_changed": 2,
-                "attempts": 2,
+                "status": "verified",
+                "claimed_verified": true,
+                "truly_correct": true,
+                "grading_detail": "the hidden contract test passed",
+                "files_changed": 1,
+                "attempts": 1,
                 "repaired": false,
-                "tokens": 23656,
-                "cost_usd": 0.00250965,
-                "duration_seconds": 73.26,
+                "tokens": 6840,
+                "cost_usd": 0.00076695,
+                "duration_seconds": 43.9,
                 "error": ""
               },
               {
@@ -393,16 +395,16 @@
                   "shape:wrapper",
                   "difficulty:name-collision"
                 ],
-                "status": "verified",
-                "claimed_verified": true,
+                "status": "unverified",
+                "claimed_verified": false,
                 "truly_correct": false,
                 "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
                 "files_changed": 2,
                 "attempts": 2,
-                "repaired": true,
-                "tokens": 20599,
-                "cost_usd": 0.00244905,
-                "duration_seconds": 68.27,
+                "repaired": false,
+                "tokens": 27131,
+                "cost_usd": 0.0031413,
+                "duration_seconds": 80.41,
                 "error": ""
               },
               {
@@ -439,11 +441,11 @@
                 "truly_correct": true,
                 "grading_detail": "the hidden contract test passed",
                 "files_changed": 2,
-                "attempts": 1,
-                "repaired": false,
-                "tokens": 18272,
-                "cost_usd": 0.0018220499999999995,
-                "duration_seconds": 50.31,
+                "attempts": 3,
+                "repaired": true,
+                "tokens": 66850,
+                "cost_usd": 0.0072885,
+                "duration_seconds": 120.67,
                 "error": ""
               }
             ]
@@ -453,8 +455,8 @@
         "model": "gpt-4o-mini",
         "dataset": "evals/datasets/migration",
         "cases": 10,
-        "generated_at": "2026-08-24T09:27:52+00:00",
-        "duration_seconds": 547.7,
+        "generated_at": "2026-08-26T09:51:03+00:00",
+        "duration_seconds": 606.2,
         "ungraded_cases": []
       },
       "skipped": "",
@@ -470,6 +472,7 @@
             "arm": "repair",
             "description": "up to three attempts, each told why the last one failed",
             "max_attempts": 3,
+            "harness": "full configuration",
             "outcomes": [
               {
                 "case_id": "01-request-field-renamed",
@@ -486,9 +489,9 @@
                 "files_changed": 2,
                 "attempts": 1,
                 "repaired": false,
-                "tokens": 9530,
-                "cost_usd": 0.013257999999999999,
-                "duration_seconds": 45.21,
+                "tokens": 11579,
+                "cost_usd": 0.011980000000000001,
+                "duration_seconds": 40.64,
                 "error": ""
               },
               {
@@ -507,9 +510,9 @@
                 "files_changed": 4,
                 "attempts": 1,
                 "repaired": false,
-                "tokens": 22249,
-                "cost_usd": 0.02561,
-                "duration_seconds": 52.86,
+                "tokens": 17712,
+                "cost_usd": 0.019488000000000005,
+                "duration_seconds": 45.55,
                 "error": ""
               },
               {
@@ -520,16 +523,16 @@
                   "change:field-removed",
                   "shape:single-module"
                 ],
-                "status": "unverified",
-                "claimed_verified": false,
+                "status": "verified",
+                "claimed_verified": true,
                 "truly_correct": true,
                 "grading_detail": "the hidden contract test passed",
                 "files_changed": 1,
                 "attempts": 1,
                 "repaired": false,
-                "tokens": 20921,
-                "cost_usd": 0.020758000000000002,
-                "duration_seconds": 31.03,
+                "tokens": 5632,
+                "cost_usd": 0.009062,
+                "duration_seconds": 44.68,
                 "error": ""
               },
               {
@@ -548,239 +551,9 @@
                 "files_changed": 2,
                 "attempts": 1,
                 "repaired": false,
-                "tokens": 13982,
-                "cost_usd": 0.0175,
-                "duration_seconds": 48.21,
-                "error": ""
-              },
-              {
-                "case_id": "05-enum-value-removed",
-                "arm": "repair",
-                "expectation": "migrate",
-                "tags": [
-                  "change:enum-removed",
-                  "shape:single-module"
-                ],
-                "status": "verified",
-                "claimed_verified": true,
-                "truly_correct": false,
-                "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
-                "files_changed": 2,
-                "attempts": 1,
-                "repaired": false,
-                "tokens": 11567,
-                "cost_usd": 0.012238,
-                "duration_seconds": 52.32,
-                "error": ""
-              },
-              {
-                "case_id": "06-raw-http-client",
-                "arm": "repair",
-                "expectation": "migrate",
-                "tags": [
-                  "change:field-renamed",
-                  "shape:raw-http"
-                ],
-                "status": "verified",
-                "claimed_verified": true,
-                "truly_correct": true,
-                "grading_detail": "the hidden contract test passed",
-                "files_changed": 1,
-                "attempts": 1,
-                "repaired": false,
-                "tokens": 12814,
-                "cost_usd": 0.012613999999999998,
-                "duration_seconds": 43.19,
-                "error": ""
-              },
-              {
-                "case_id": "07-required-field-added",
-                "arm": "repair",
-                "expectation": "migrate",
-                "tags": [
-                  "change:required-added",
-                  "shape:single-module",
-                  "limitation:nothing-to-match"
-                ],
-                "status": "no_affected_code",
-                "claimed_verified": false,
-                "truly_correct": null,
-                "grading_detail": "no patch was produced, so there was nothing to grade",
-                "files_changed": 0,
-                "attempts": 0,
-                "repaired": false,
-                "tokens": 0,
-                "cost_usd": 0.0,
-                "duration_seconds": 0.0,
-                "error": ""
-              },
-              {
-                "case_id": "08-wrapper-and-tests",
-                "arm": "repair",
-                "expectation": "migrate",
-                "tags": [
-                  "change:field-renamed",
-                  "shape:wrapper",
-                  "difficulty:name-collision"
-                ],
-                "status": "verified",
-                "claimed_verified": true,
-                "truly_correct": true,
-                "grading_detail": "the hidden contract test passed",
-                "files_changed": 2,
-                "attempts": 1,
-                "repaired": false,
-                "tokens": 11182,
-                "cost_usd": 0.015686,
-                "duration_seconds": 48.74,
-                "error": ""
-              },
-              {
-                "case_id": "09-unrelated-change",
-                "arm": "repair",
-                "expectation": "no_op",
-                "tags": [
-                  "change:unrelated",
-                  "shape:negative"
-                ],
-                "status": "no_affected_code",
-                "claimed_verified": false,
-                "truly_correct": null,
-                "grading_detail": "no patch was produced, so there was nothing to grade",
-                "files_changed": 0,
-                "attempts": 0,
-                "repaired": false,
-                "tokens": 0,
-                "cost_usd": 0.0,
-                "duration_seconds": 0.01,
-                "error": ""
-              },
-              {
-                "case_id": "10-partially-migrated",
-                "arm": "repair",
-                "expectation": "migrate",
-                "tags": [
-                  "change:field-renamed",
-                  "shape:multi-module",
-                  "difficulty:partial"
-                ],
-                "status": "verified",
-                "claimed_verified": true,
-                "truly_correct": true,
-                "grading_detail": "the hidden contract test passed",
-                "files_changed": 2,
-                "attempts": 2,
-                "repaired": true,
-                "tokens": 26579,
-                "cost_usd": 0.030142000000000002,
-                "duration_seconds": 75.76,
-                "error": ""
-              }
-            ]
-          }
-        ],
-        "provider": "openai",
-        "model": "gpt-4.1",
-        "dataset": "evals/datasets/migration",
-        "cases": 10,
-        "generated_at": "2026-08-24T09:34:29+00:00",
-        "duration_seconds": 397.3,
-        "ungraded_cases": []
-      },
-      "skipped": "",
-      "priced": true
-    },
-    {
-      "label": "openai:gpt-4.1-mini",
-      "provider": "openai",
-      "model": "gpt-4.1-mini",
-      "result": {
-        "arms": [
-          {
-            "arm": "repair",
-            "description": "up to three attempts, each told why the last one failed",
-            "max_attempts": 3,
-            "outcomes": [
-              {
-                "case_id": "01-request-field-renamed",
-                "arm": "repair",
-                "expectation": "migrate",
-                "tags": [
-                  "change:field-renamed",
-                  "shape:single-module"
-                ],
-                "status": "verified",
-                "claimed_verified": true,
-                "truly_correct": true,
-                "grading_detail": "the hidden contract test passed",
-                "files_changed": 2,
-                "attempts": 1,
-                "repaired": false,
-                "tokens": 19237,
-                "cost_usd": 0.003682,
-                "duration_seconds": 53.18,
-                "error": ""
-              },
-              {
-                "case_id": "02-rename-across-modules",
-                "arm": "repair",
-                "expectation": "migrate",
-                "tags": [
-                  "change:field-renamed",
-                  "shape:multi-module",
-                  "difficulty:spread"
-                ],
-                "status": "unverified",
-                "claimed_verified": false,
-                "truly_correct": true,
-                "grading_detail": "the hidden contract test passed",
-                "files_changed": 4,
-                "attempts": 2,
-                "repaired": false,
-                "tokens": 60119,
-                "cost_usd": 0.012578000000000002,
-                "duration_seconds": 74.19,
-                "error": ""
-              },
-              {
-                "case_id": "03-request-field-removed",
-                "arm": "repair",
-                "expectation": "migrate",
-                "tags": [
-                  "change:field-removed",
-                  "shape:single-module"
-                ],
-                "status": "verified",
-                "claimed_verified": true,
-                "truly_correct": true,
-                "grading_detail": "the hidden contract test passed",
-                "files_changed": 2,
-                "attempts": 1,
-                "repaired": false,
-                "tokens": 23083,
-                "cost_usd": 0.0048352000000000004,
-                "duration_seconds": 55.4,
-                "error": ""
-              },
-              {
-                "case_id": "04-response-field-renamed",
-                "arm": "repair",
-                "expectation": "migrate",
-                "tags": [
-                  "change:response-renamed",
-                  "shape:single-module",
-                  "difficulty:direction"
-                ],
-                "status": "verified",
-                "claimed_verified": true,
-                "truly_correct": false,
-                "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
-                "files_changed": 2,
-                "attempts": 1,
-                "repaired": false,
-                "tokens": 14279,
-                "cost_usd": 0.0034484,
-                "duration_seconds": 52.84,
+                "tokens": 11702,
+                "cost_usd": 0.015988000000000002,
+                "duration_seconds": 45.65,
                 "error": ""
               },
               {
@@ -798,9 +571,9 @@
                 "files_changed": 0,
                 "attempts": 1,
                 "repaired": false,
-                "tokens": 31187,
-                "cost_usd": 0.0068108000000000005,
-                "duration_seconds": 25.47,
+                "tokens": 18000,
+                "cost_usd": 0.019445999999999998,
+                "duration_seconds": 9.55,
                 "error": ""
               },
               {
@@ -818,9 +591,9 @@
                 "files_changed": 1,
                 "attempts": 1,
                 "repaired": false,
-                "tokens": 5635,
-                "cost_usd": 0.0013612,
-                "duration_seconds": 39.49,
+                "tokens": 17206,
+                "cost_usd": 0.019837999999999998,
+                "duration_seconds": 50.94,
                 "error": ""
               },
               {
@@ -860,9 +633,240 @@
                 "files_changed": 2,
                 "attempts": 1,
                 "repaired": false,
-                "tokens": 7372,
-                "cost_usd": 0.0020800000000000003,
-                "duration_seconds": 47.48,
+                "tokens": 11201,
+                "cost_usd": 0.014506,
+                "duration_seconds": 56.87,
+                "error": ""
+              },
+              {
+                "case_id": "09-unrelated-change",
+                "arm": "repair",
+                "expectation": "no_op",
+                "tags": [
+                  "change:unrelated",
+                  "shape:negative"
+                ],
+                "status": "no_affected_code",
+                "claimed_verified": false,
+                "truly_correct": null,
+                "grading_detail": "no patch was produced, so there was nothing to grade",
+                "files_changed": 0,
+                "attempts": 0,
+                "repaired": false,
+                "tokens": 0,
+                "cost_usd": 0.0,
+                "duration_seconds": 0.01,
+                "error": ""
+              },
+              {
+                "case_id": "10-partially-migrated",
+                "arm": "repair",
+                "expectation": "migrate",
+                "tags": [
+                  "change:field-renamed",
+                  "shape:multi-module",
+                  "difficulty:partial"
+                ],
+                "status": "verified",
+                "claimed_verified": true,
+                "truly_correct": true,
+                "grading_detail": "the hidden contract test passed",
+                "files_changed": 2,
+                "attempts": 2,
+                "repaired": true,
+                "tokens": 31431,
+                "cost_usd": 0.039888,
+                "duration_seconds": 84.17,
+                "error": ""
+              }
+            ]
+          }
+        ],
+        "provider": "openai",
+        "model": "gpt-4.1",
+        "dataset": "evals/datasets/migration",
+        "cases": 10,
+        "generated_at": "2026-08-26T09:59:09+00:00",
+        "duration_seconds": 378.1,
+        "ungraded_cases": []
+      },
+      "skipped": "",
+      "priced": true
+    },
+    {
+      "label": "openai:gpt-4.1-mini",
+      "provider": "openai",
+      "model": "gpt-4.1-mini",
+      "result": {
+        "arms": [
+          {
+            "arm": "repair",
+            "description": "up to three attempts, each told why the last one failed",
+            "max_attempts": 3,
+            "harness": "full configuration",
+            "outcomes": [
+              {
+                "case_id": "01-request-field-renamed",
+                "arm": "repair",
+                "expectation": "migrate",
+                "tags": [
+                  "change:field-renamed",
+                  "shape:single-module"
+                ],
+                "status": "verified",
+                "claimed_verified": true,
+                "truly_correct": true,
+                "grading_detail": "the hidden contract test passed",
+                "files_changed": 2,
+                "attempts": 1,
+                "repaired": false,
+                "tokens": 21122,
+                "cost_usd": 0.003932000000000001,
+                "duration_seconds": 51.65,
+                "error": ""
+              },
+              {
+                "case_id": "02-rename-across-modules",
+                "arm": "repair",
+                "expectation": "migrate",
+                "tags": [
+                  "change:field-renamed",
+                  "shape:multi-module",
+                  "difficulty:spread"
+                ],
+                "status": "unverified",
+                "claimed_verified": false,
+                "truly_correct": true,
+                "grading_detail": "the hidden contract test passed",
+                "files_changed": 4,
+                "attempts": 1,
+                "repaired": false,
+                "tokens": 25397,
+                "cost_usd": 0.004958,
+                "duration_seconds": 38.57,
+                "error": ""
+              },
+              {
+                "case_id": "03-request-field-removed",
+                "arm": "repair",
+                "expectation": "migrate",
+                "tags": [
+                  "change:field-removed",
+                  "shape:single-module"
+                ],
+                "status": "unverified",
+                "claimed_verified": false,
+                "truly_correct": true,
+                "grading_detail": "the hidden contract test passed",
+                "files_changed": 1,
+                "attempts": 1,
+                "repaired": false,
+                "tokens": 28508,
+                "cost_usd": 0.0060236000000000005,
+                "duration_seconds": 47.43,
+                "error": ""
+              },
+              {
+                "case_id": "04-response-field-renamed",
+                "arm": "repair",
+                "expectation": "migrate",
+                "tags": [
+                  "change:response-renamed",
+                  "shape:single-module",
+                  "difficulty:direction"
+                ],
+                "status": "verified",
+                "claimed_verified": true,
+                "truly_correct": false,
+                "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
+                "files_changed": 2,
+                "attempts": 1,
+                "repaired": false,
+                "tokens": 12265,
+                "cost_usd": 0.0032488000000000005,
+                "duration_seconds": 45.58,
+                "error": ""
+              },
+              {
+                "case_id": "05-enum-value-removed",
+                "arm": "repair",
+                "expectation": "migrate",
+                "tags": [
+                  "change:enum-removed",
+                  "shape:single-module"
+                ],
+                "status": "verified",
+                "claimed_verified": true,
+                "truly_correct": false,
+                "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
+                "files_changed": 2,
+                "attempts": 1,
+                "repaired": false,
+                "tokens": 16763,
+                "cost_usd": 0.0039212,
+                "duration_seconds": 45.85,
+                "error": ""
+              },
+              {
+                "case_id": "06-raw-http-client",
+                "arm": "repair",
+                "expectation": "migrate",
+                "tags": [
+                  "change:field-renamed",
+                  "shape:raw-http"
+                ],
+                "status": "verified",
+                "claimed_verified": true,
+                "truly_correct": true,
+                "grading_detail": "the hidden contract test passed",
+                "files_changed": 1,
+                "attempts": 1,
+                "repaired": false,
+                "tokens": 18099,
+                "cost_usd": 0.0038640000000000002,
+                "duration_seconds": 46.69,
+                "error": ""
+              },
+              {
+                "case_id": "07-required-field-added",
+                "arm": "repair",
+                "expectation": "migrate",
+                "tags": [
+                  "change:required-added",
+                  "shape:single-module",
+                  "limitation:nothing-to-match"
+                ],
+                "status": "no_affected_code",
+                "claimed_verified": false,
+                "truly_correct": null,
+                "grading_detail": "no patch was produced, so there was nothing to grade",
+                "files_changed": 0,
+                "attempts": 0,
+                "repaired": false,
+                "tokens": 0,
+                "cost_usd": 0.0,
+                "duration_seconds": 0.0,
+                "error": ""
+              },
+              {
+                "case_id": "08-wrapper-and-tests",
+                "arm": "repair",
+                "expectation": "migrate",
+                "tags": [
+                  "change:field-renamed",
+                  "shape:wrapper",
+                  "difficulty:name-collision"
+                ],
+                "status": "verified",
+                "claimed_verified": true,
+                "truly_correct": true,
+                "grading_detail": "the hidden contract test passed",
+                "files_changed": 2,
+                "attempts": 1,
+                "repaired": false,
+                "tokens": 9133,
+                "cost_usd": 0.0026968,
+                "duration_seconds": 50.9,
                 "error": ""
               },
               {
@@ -896,14 +900,14 @@
                 ],
                 "status": "unverified",
                 "claimed_verified": false,
-                "truly_correct": false,
-                "grading_detail": "the hidden contract test did not pass: the patch broke checks that passed before it: tests",
-                "files_changed": 1,
+                "truly_correct": true,
+                "grading_detail": "the hidden contract test passed",
+                "files_changed": 2,
                 "attempts": 1,
                 "repaired": false,
-                "tokens": 28827,
-                "cost_usd": 0.0059796,
-                "duration_seconds": 45.18,
+                "tokens": 29664,
+                "cost_usd": 0.006234,
+                "duration_seconds": 40.91,
                 "error": ""
               }
             ]
@@ -913,26 +917,18 @@
         "model": "gpt-4.1-mini",
         "dataset": "evals/datasets/migration",
         "cases": 10,
-        "generated_at": "2026-08-24T09:41:03+00:00",
-        "duration_seconds": 393.2,
+        "generated_at": "2026-08-26T10:05:16+00:00",
+        "duration_seconds": 367.6,
         "ungraded_cases": []
       },
       "skipped": "",
-      "priced": true
-    },
-    {
-      "label": "anthropic:claude-sonnet-5",
-      "provider": "anthropic",
-      "model": "claude-sonnet-5",
-      "result": null,
-      "skipped": "no API key for anthropic; set REWIRE_LLM__ANTHROPIC_API_KEY to include it",
       "priced": true
     }
   ],
   "arm": "repair",
   "dataset": "evals/datasets/migration",
   "cases": 10,
-  "generated_at": "2026-08-24T09:41:03+00:00",
-  "duration_seconds": 1724.6,
+  "generated_at": "2026-08-26T10:05:16+00:00",
+  "duration_seconds": 1867.6,
   "pricing_snapshot": "2026-06-24"
 }

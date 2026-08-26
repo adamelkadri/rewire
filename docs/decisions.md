@@ -1079,6 +1079,16 @@ says which of the two happened.
 covered is gone — now reaches `WEAKENED` and is not applied automatically. That
 is the correct default for an automated writer and it is a real restriction.
 
+**Since measured (2026-08-26).** The model comparison and the ablation were both
+re-run under this verdict. The pooled overclaim rate moved from 32% (17–52%) to
+25% (12–45%), which at *n* = 10 establishes nothing; the case-level movement does.
+Every overclaim that disappeared came from `08-wrapper-and-tests` — two of four
+models and three of four arms, all to zero — and every one that survived is on a
+cheat class ADR-050 already records as uncatchable. The claim in this decision
+that the verdict is *repairable* also has its first evidence: one arm's case 08
+went `weakened`, then `verified`, then correct by the hidden test. See the
+re-measurement section in [the roadmap](roadmap.md).
+
 ---
 
 ## ADR-048 — The weakening check counts, it does not read

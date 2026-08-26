@@ -91,6 +91,16 @@ class Contender:
         return self.result.overclaimed if self.result else 0
 
     @property
+    def refused_as_weakened(self) -> int:
+        """Patches the sandbox refused to vouch for because the tests were weakened.
+
+        Reported beside the overclaim count because it is where an overclaim
+        goes when the check works: the patch is still wrong, and Rewire has
+        stopped saying otherwise.
+        """
+        return self.result.refused_as_weakened if self.result else 0
+
+    @property
     def tokens(self) -> int:
         """Tokens spent."""
         return self.result.total_tokens if self.result else 0
@@ -178,15 +188,16 @@ def render_headline(contenders: Sequence[Contender], *, heading: str) -> list[st
     """The rates table, with an interval and an overclaim rate on every row."""
     lines = [
         f"| {heading} | Correct | 95% CI | Verified | Overclaimed |"
-        " Overclaim rate | Tokens | Cost |",
-        "|---|---|---|---|---|---|---|---|",
+        " Overclaim rate | Weakened | Tokens | Cost |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for column in ran(contenders):
         rate = f"{column.overclaim_rate:.0%}" if column.overclaim_rate is not None else "-"
         lines.append(
             f"| `{column.label}` | **{column.succeeded}/{column.total}** | "
             f"{column.interval.render()} | {column.claimed} | {column.overclaimed} | "
-            f"{rate} | {column.tokens} | {render_money(column.cost_usd)} |"
+            f"{rate} | {column.refused_as_weakened} | {column.tokens} | "
+            f"{render_money(column.cost_usd)} |"
         )
     if not ran(contenders):
         lines += ["", f"**No {heading.lower()} ran.** Nothing here is a measurement."]

@@ -21,13 +21,16 @@ lints executed in a sandbox.
 > **Status: measured, acting on what was measured, and now unattended.** The
 > pipeline runs end to end, follows an upstream specification on a schedule, and
 > is scored against a benchmark that grades each patch with a contract test the
-> agent never sees. That benchmark found that **a fifth to a third of
-> the patches Rewire vouched for were wrong** — the agent satisfied the visible
-> tests by weakening them — and that the rate barely moved across four models or
-> four harness configurations. Rewire now refuses to call such a patch verified,
-> using two deterministic checks whose first version *failed* and whose second
-> was chosen from the traces of that failure. It still cannot catch every cheat,
-> and the ones it cannot are written down. See
+> agent never sees. That benchmark found that **a third of the patches Rewire
+> vouched for were wrong** — the agent satisfied the visible tests by weakening
+> them — and that the rate barely moved across four models or four harness
+> configurations. Rewire now refuses to call such a patch verified, using two
+> deterministic checks whose first version *failed* and whose second was chosen
+> from the traces of that failure. Re-measuring afterwards put the pooled rate at
+> **25% (12–45%)**, an interval that overlaps the original almost entirely — so
+> the case the checks work is made at case level, not by that number, and it is
+> made in full below. It still cannot catch every cheat, and the ones it cannot
+> are written down. See
 > [docs/roadmap.md](docs/roadmap.md) for exactly what exists. Nothing in this
 > README describes behaviour that is not implemented.
 
@@ -374,38 +377,79 @@ model.
 
 | Model | Correct | 95% CI | Vouched for | Overclaimed | Overclaim rate | Cost |
 |---|---|---|---|---|---|---|
-| `gpt-4o` | **6/10** | 31–83% | 8 | 3 | 38% | $0.19 |
-| `gpt-4o-mini` | **4/10** | 17–69% | 5 | 2 | 40% | $0.02 |
-| `gpt-4.1` | **6/10** | 31–83% | 7 | 2 | 29% | $0.15 |
-| `gpt-4.1-mini` | **5/10** | 24–76% | 5 | 1 | 20% | $0.04 |
+| `gpt-4o` | **6/10** | 31–83% | 6 | 1 | 17% | $0.23 |
+| `gpt-4o-mini` | **5/10** | 24–76% | 6 | 2 | 33% | $0.02 |
+| `gpt-4.1` | **7/10** | 40–89% | 7 | 1 | 14% | $0.15 |
+| `gpt-4.1-mini` | **4/10** | 17–69% | 5 | 2 | 40% | $0.03 |
 
 **No pair of models is separable.** Every pairwise comparison is an exact paired
 sign test over the cases the two disagreed on, and all six come back
-inconclusive — the largest is 2–0 on two disagreements, p = 0.50, which is a coin
-landing the same way twice. The report prints that verdict instead of a ranking
-([ADR-041](docs/decisions.md)). Those intervals are Wilson rather than the normal
-approximation, which at *n* = 10 is too narrow and puts bounds outside [0, 1]
-exactly where these results sit.
+inconclusive — the largest is 3–0 on three disagreements, p = 0.25, which is a
+coin landing the same way three times. The report prints that verdict instead of
+a ranking ([ADR-041](docs/decisions.md)). Those intervals are Wilson rather than
+the normal approximation, which at *n* = 10 is too narrow and puts bounds outside
+[0, 1] exactly where these results sit.
 
 Two things the comparison does establish, because they do not depend on
 separating the models:
 
 **Overclaiming is a property of the harness, not the model.** Pooled across all
-four, Rewire vouched for 25 patches and 8 were wrong — **32% (17–52%)** — and
-every individual model lands between 20% and 40%. Buying a better model did not
-buy a more trustworthy verdict. That is an argument for working on verification,
-and it is only visible because the grading tests are hidden.
+four, Rewire vouched for 24 patches and 6 were wrong — **25% (12–45%)** — and
+individual models land between 14% and 40%. Buying a better model did not buy a
+more trustworthy verdict. That is an argument for working on verification, and it
+is only visible because the grading tests are hidden.
 
 **Three cases no model solved** — `04-response-field-renamed`,
 `05-enum-value-removed`, `07-required-field-added`. A stronger model did not move
 them, so they are Rewire's ceiling rather than the model's, and they are the
-concrete target list for the next phase ([ADR-043](docs/decisions.md)). Case 04
-is the sharpest: three of the four models produced a patch Rewire *vouched for*
-and the contract test rejected.
+concrete target list ([ADR-043](docs/decisions.md)). Case 04 is the sharpest:
+three of the four models produced a patch Rewire *vouched for* and the contract
+test rejected.
 
-The cheap models are not cheap in tokens — `gpt-4.1-mini` spent 190k tokens to
-`gpt-4o`'s 98k, because it needed more repair attempts — but it still cost a
-fifth as much, scored one case lower, and overclaimed least.
+### What re-measuring under the weakening check actually changed
+
+These numbers replace an earlier run made before Rewire could refuse a patch that
+weakened the tests. The pooled overclaim rate moved from 32% (17–52%) to
+25% (12–45%) — two intervals that overlap almost entirely, so **the headline rate
+is not the evidence.** Per-model it moved in both directions: `gpt-4o` from 38%
+to 17%, `gpt-4.1-mini` from 20% to 40%. At *n* = 10, that is noise.
+
+The evidence is at case level, where the movement is not ambiguous:
+
+| Case | Overclaims before | Overclaims after |
+|---|---|---|
+| `04-response-field-renamed` | 3 of 4 models | 3 of 4 models |
+| `05-enum-value-removed` | 3 of 4 models | 3 of 4 models |
+| `08-wrapper-and-tests` | 2 of 4 models | **0** |
+
+Every overclaim that disappeared came from case 08, and **every one that survived
+is on case 04 or 05 — precisely the two cheat classes
+[ADR-050](docs/decisions.md) records the check cannot catch.** That attribution
+was verified in the run traces rather than inferred: both case-08 runs carry the
+verdict `weakened`, with the finding
+
+```text
+public_api_changed  wrapper/__init__.py
+parameters (prompt, max_tokens) became (prompt, max_completion_tokens)
+```
+
+The agent was passing by renaming *the repository's own* wrapper signature to
+match the API. The hidden test rejected those patches before and after, so the
+patch was wrong either way — what changed is that Rewire stopped calling it
+verified. Overclaim became miss, which is the intended conversion; it is not
+miss becoming correct.
+
+The ablation run shows the same shape and one thing more. One arm's case 08 went
+`weakened` on the first attempt, `verified` on the second, and **correct** by the
+hidden test — the refusal fed back into the repair loop redirected the agent
+rather than merely silencing it, which is what [ADR-047](docs/decisions.md)
+claimed it would do and had not previously demonstrated.
+
+The cheap models are not cheap in tokens — `gpt-4.1-mini` spent 161k to
+`gpt-4o`'s 119k, because it needed more repair attempts — and this time it also
+scored lowest and overclaimed most, having been the *least* overclaiming model in
+the previous run. That reversal is the clearest single illustration of how little
+a ten-case ranking is worth.
 
 `anthropic:claude-sonnet-5` was requested and appears in the report's **Not run**
 section: this project has no Anthropic key. The provider layer is agnostic and
@@ -414,7 +458,9 @@ the report names the gap rather than closing it by omission
 "across providers" describes the machinery and not the table above.
 
 **Four models, ten cases, one run each.** Full results in
-[`evals/results/models.md`](evals/results/models.md).
+[`evals/results/models.md`](evals/results/models.md). Those JSON artefacts predate
+the per-attempt `verdict` field that reports now carry, so the verdicts quoted
+above were recovered from the run traces under `.rewire/runs/`.
 
 ## What is the deterministic analysis actually worth?
 
@@ -430,10 +476,10 @@ only thing that differs between rows is what the agent is given.
 
 | Arm | Correct | 95% CI | Overclaim rate | Repairs needed | Tokens | Cost |
 |---|---|---|---|---|---|---|
-| `full` (control) | **6/10** | 31–83% | 29% | 3 | 143k | $0.27 |
-| `no-impact-locations` | **7/10** | 40–89% | 14% | 0 | 98k | $0.19 |
-| `no-impact` | **7/10** | 40–89% | 12% | 0 | 101k | $0.19 |
-| `no-search` | **5/10** | 24–76% | 33% | 4 | 155k | $0.29 |
+| `full` (control) | **7/10** | 40–89% | 25% | 4 | 117k | $0.23 |
+| `no-impact-locations` | **8/10** | 49–94% | 12% | 1 | 101k | $0.20 |
+| `no-impact` | **5/10** | 24–76% | 29% | 0 | 128k | $0.25 |
+| `no-search` | **6/10** | 31–83% | 17% | 2 | 168k | $0.32 |
 
 `no-impact-locations` is told exactly which API fields changed and *not* where
 they are used, keeping every tool. `no-impact` additionally removes the rule that
@@ -441,40 +487,57 @@ stops a run when impact analysis finds nothing. `no-search` is the mirror image:
 it keeps the ranked locations and loses `search_code`, `find_calls` and
 `find_symbol`.
 
-**Withholding the ranked locations did not hurt.** Both arms that lost them
-scored one case *higher* than the control, needed **no repair attempts at all**
-against the control's three, and cost a third less. No pairwise difference here is
-statistically separable — the strongest is p = 0.50 — so the honest statement is
-that this dataset cannot detect a benefit from the ranked locations. That is still
-a bad result for the claim, because the claim was that they help.
+**Withholding the ranked locations did not hurt — and this is now the second run
+to say so.** `no-impact-locations` scored one case *higher* than the control,
+needed one repair against the control's four, and cost less, which is the same
+direction it went the first time. No pairwise difference is statistically
+separable — the strongest is p = 0.25 — so the honest statement remains that this
+dataset cannot detect a benefit from the ranked locations. That is still a bad
+result for the claim, because the claim was that they help.
 
-The clearest single case: `04-response-field-renamed` was solved by both arms that
-were **not** told where to look, and missed by both arms that were. No model
-solved it in the Phase 9 comparison either. The pattern across the table — the
-arms given locations needed seven repair attempts between them, the arms without
-needed none — is consistent with the ranked locations *anchoring* the agent: it
-edits where it was pointed and stops looking. That is a hypothesis this dataset
-suggests and cannot confirm.
+**One thing from the first run did not replicate, and it was the sharpest thing
+in it.** That run's clearest single case was `04-response-field-renamed`: solved
+by both arms *not* told where to look, missed by both arms that were. It was
+offered as suggestive of the ranked locations *anchoring* the agent — an
+explicitly unconfirmed hypothesis. On re-running, case 04 was solved by
+`no-impact-locations` and `no-search`, and overclaimed by `full` and `no-impact`,
+which does not fit that story at all. **The anchoring hypothesis is not
+supported.** The headline result survives; its explanation does not.
 
-**The search tools are doing real work.** `no-search` is the worst arm and also
-the most expensive one, burning the most tokens and the most repair attempts to
-score lowest. It is the only arm to miss `02-rename-across-modules`, which is
-precisely the case that requires looking beyond what the analysis ranked.
+`no-impact` moving from 7/10 to 5/10 between two identical runs is the same
+lesson in a different form. At *n* = 10, a two-case swing needs no cause.
+
+**The search tools are doing real work**, on the evidence that held across both
+runs rather than on rank. `no-search` is the most expensive arm in both — 168k
+tokens and $0.32 here — and in both it is the only arm to miss
+`02-rename-across-modules`, which is precisely the case that requires looking
+beyond what the analysis ranked.
 
 **The gate is worth exactly one case, and the report shows which.** `no-impact` is
 the only arm that bypasses "stop when impact analysis finds no affected code", and
-the only arm that produced a **spurious patch** for `09-unrelated-change` — a
-repository that needed no migration at all. Being able to say "nothing here" is a
-separable part of what impact analysis contributes, which is why it gets its own
-arm ([ADR-045](docs/decisions.md)).
+in both runs it is the only arm that produced a **spurious patch** for
+`09-unrelated-change` — a repository that needed no migration at all. Being able
+to say "nothing here" is a separable part of what impact analysis contributes,
+which is why it gets its own arm ([ADR-045](docs/decisions.md)).
+
+**Case 05 is the most consistent failure in the dataset.** `05-enum-value-removed`
+was overclaimed by all four arms here and by three of four in the first run, and
+by three of four models in both model comparisons. It fails the same way every
+time, for a reason [ADR-050](docs/decisions.md) names: `ChangeReport` records
+*that* an enum changed, not *which values*, so the agent invents one and the
+visible tests do not care. Eight model-runs and eight arm-runs agreeing makes it
+the best-evidenced fix available.
 
 Making an ablation genuinely ablate took three fixes, each a leak found while
 building it: `inspect_api_change` also returns locations; the task prompt listed
 only the changes impact analysis had found code for; and a model can call a tool
 it was never offered ([ADR-044](docs/decisions.md)).
 
-**Four arms, ten cases, one run each.** Full results in
-[`evals/results/ablation.md`](evals/results/ablation.md).
+**Four arms, ten cases, one run each — now twice.** Full results in
+[`evals/results/ablation.md`](evals/results/ablation.md), which replaces a run
+made before Rewire could refuse a patch that weakened the tests. Case 08's three
+overclaims in the first run became zero here, matching the model comparison
+exactly.
 
 ## Notice on its own
 

@@ -569,3 +569,30 @@ def test_models_are_compared_under_the_shipped_repair_arm() -> None:
     """A comparison run with a budget nobody ships describes a product nobody runs."""
     repair = next(arm for arm in DEFAULT_ARMS if arm.name == "repair")
     assert DEFAULT_COMPARISON_ARM is repair
+
+
+def test_a_refused_patch_is_counted_separately_from_an_overclaim() -> None:
+    """The distinction the whole weakening check exists to create.
+
+    A patch Rewire refused to vouch for because it weakened the tests is still
+    wrong, but it is not a *false claim*. Folding the two together would make
+    the check look like it had done nothing.
+    """
+    refused = CaseOutcome(
+        case_id="08-wrapper-and-tests",
+        arm="repair",
+        expectation=Expectation.MIGRATE,
+        status=MigrationStatus.UNVERIFIED,
+        claimed_verified=False,
+        truly_correct=False,
+        verdicts=("weakened", "weakened"),
+    )
+    comparison = ModelComparison(
+        runs=(run_of("openai:a", (refused, outcome("01", correct=False))),)
+    )
+    column = comparison.contenders[0]
+    assert column.refused_as_weakened == 1
+    assert column.overclaimed == 1
+
+    markdown = render_markdown(comparison)
+    assert "Overclaim rate | Weakened |" in markdown

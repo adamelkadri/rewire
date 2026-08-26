@@ -466,3 +466,63 @@ def test_the_report_breaks_the_headline_apart_by_tag() -> None:
     assert "| Tag | Correct |" in markdown
     assert "| change:field-renamed | 1/1 |" in markdown
     assert "| shape:single-module | 1/1 |" in markdown
+
+
+# ------------------------------------------------------------------ verdicts ---
+
+
+def test_a_case_records_the_verdict_of_every_attempt() -> None:
+    """``status`` collapses several verdicts into ``unverified``.
+
+    The one this benchmark exists to count -- a patch Rewire refused to vouch
+    for because it weakened the tests -- is indistinguishable from a genuine
+    regression without the verdict, which is a question the published artefact
+    could not answer until it carried this.
+    """
+    refused = outcome(status=MigrationStatus.UNVERIFIED, verdicts=("weakened", "weakened"))
+    regressed = outcome(status=MigrationStatus.UNVERIFIED, verdicts=("regressed", "regressed"))
+    assert refused.refused_as_weakened is True
+    assert regressed.refused_as_weakened is False
+    assert refused.status == regressed.status
+
+
+def test_a_weakened_first_attempt_that_is_then_repaired_still_counts() -> None:
+    """Observed live: weakened, then verified, then correct.
+
+    The check is fed back to the repair loop, so a run can carry the verdict and
+    still end well. Counting only the last attempt would hide that entirely.
+    """
+    repaired = outcome(status=MigrationStatus.VERIFIED, verdicts=("weakened", "verified"))
+    assert repaired.refused_as_weakened is True
+
+
+def test_an_outcome_with_no_verdicts_refuses_nothing() -> None:
+    assert outcome().refused_as_weakened is False
+
+
+def test_an_arm_counts_the_patches_it_refused_to_vouch_for() -> None:
+    arm = ArmResult(
+        arm="a",
+        outcomes=(
+            outcome(status=MigrationStatus.UNVERIFIED, verdicts=("weakened",)),
+            outcome(status=MigrationStatus.UNVERIFIED, verdicts=("regressed",)),
+            outcome(claimed_verified=True, truly_correct=False),
+        ),
+    )
+    assert arm.refused_as_weakened == 1
+    # The refusal is not an overclaim: that is the whole point of counting both.
+    assert arm.overclaimed == 1
+
+
+def test_the_arm_table_reports_weakened_beside_overclaimed() -> None:
+    result = BenchmarkResult(
+        arms=(
+            ArmResult(
+                arm="repair",
+                outcomes=(outcome(status=MigrationStatus.UNVERIFIED, verdicts=("weakened",)),),
+            ),
+        ),
+        cases=1,
+    )
+    table = render_markdown(result)
+    assert "| Arm | Attempts | Correct | Verified | Overclaimed | Weakened |" in table

@@ -31,6 +31,58 @@ Legend: **done** · *in progress* · planned
 Milestones: **0–3** core intelligence · **4–7** working agent · **8–10** measured
 agent · **11–18** production product.
 
+## Re-measured under the weakening check
+
+Phases 9 and 10 were measured *before* Rewire could refuse a patch that passed by
+weakening the tests. Both were re-run on 2026-08-26 against the same models, arms,
+cases and budgets. **The blocks below are left as written**: what the first run
+said is part of the record, and the difference between the two runs is the most
+useful thing either produced.
+
+**The headline rates moved, and the movement is not evidence.** Pooled overclaim
+rate across the four models went from 32% (17–52%) to 25% (12–45%) — intervals
+that overlap almost entirely. Per model it moved in both directions: `gpt-4o`
+38% → 17%, `gpt-4.1-mini` 20% → 40%. The ablation's `no-impact` arm went 7/10 to
+5/10 between two identical runs. At *n* = 10, none of that needs a cause.
+
+**The case-level movement is not ambiguous.** In both the model comparison and the
+ablation, every overclaim that disappeared came from `08-wrapper-and-tests` —
+2 of 4 models and 3 of 4 arms, all to zero — and every overclaim that survived is
+on `04-response-field-renamed` or `05-enum-value-removed`, which are precisely the
+two cheat classes ADR-050 records the check cannot catch. Attribution was verified
+in the run traces, not inferred: the case-08 runs carry verdict `weakened` with the
+finding `public_api_changed  wrapper/__init__.py — parameters (prompt, max_tokens)
+became (prompt, max_completion_tokens)`. The agent was renaming *the repository's
+own* wrapper signature to match the API.
+
+**A first demonstration that the refusal repairs rather than only blocks.** One
+ablation arm's case 08 went `weakened` on attempt 1, `verified` on attempt 2, and
+correct by the hidden test. ADR-047 claimed the verdict would feed back into the
+repair loop usefully; this is the first run in which that is observable.
+
+**A finding that did not replicate.** Phase 10's sharpest single observation —
+`04-response-field-renamed` solved only by the arms *not* told where to look,
+suggested as evidence that ranked locations *anchor* the agent — did not hold. On
+re-running, 04 was solved by `no-impact-locations` and `no-search` and overclaimed
+by `full` and `no-impact`. The anchoring hypothesis was offered as unconfirmed and
+is now unsupported. Phase 10's headline null result survives; its explanation does
+not.
+
+**The clearest target the two runs agree on.** `05-enum-value-removed` was
+overclaimed by 3 of 4 models in both comparisons and by 3 then 4 of 4 arms. It
+fails identically every time because `ChangeReport` records *that* an enum changed
+and not *which values*, so the agent invents one and the visible tests do not
+care. Sixteen runs agreeing makes it the best-evidenced fix available.
+
+**Instrumentation fixed along the way.** The published benchmark JSON recorded only
+`status`, which collapses `weakened` and `regressed` into `unverified` — so the
+artefact could not answer the question the re-run existed to ask, and the verdicts
+above had to be recovered from `.rewire/runs/`. `CaseOutcome` now carries the
+verdict of every attempt and both report tables carry a **Weakened** column. The
+JSON committed for these two runs predates that field.
+
+Wall clock 1868s and 1736s, total spend $1.13.
+
 ## What Phase 12 delivers
 
 - `rewire watch add <name> --source <url|path> --repo ./repo` — a declaration
@@ -223,7 +275,8 @@ real restriction.
   (ADR-046), verified by re-rendering Phase 9's saved results through it and
   getting identical numbers.
 
-**Measured, four arms, ten cases each, one run per arm, gpt-4o throughout:**
+**Measured, four arms, ten cases each, one run per arm, gpt-4o throughout**
+(superseded by the re-run above; kept as the record of what this phase found):
 
 | Arm | Correct | 95% CI | Overclaim rate | Repairs | Tokens | Cost |
 |-----|---------|--------|----------------|---------|--------|------|
@@ -294,7 +347,8 @@ Wall clock 1913s, total spend $0.94.
 - A crashed model is recorded the same way and the models that already ran are
   kept, along with a partial results file written after each model.
 
-**Measured, four models, ten cases each, one run per model:**
+**Measured, four models, ten cases each, one run per model**
+(superseded by the re-run above; kept as the record of what this phase found):
 
 | Model | Correct | 95% CI | Vouched for | Overclaimed | Cost |
 |-------|---------|--------|-------------|-------------|------|

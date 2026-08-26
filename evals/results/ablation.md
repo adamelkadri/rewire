@@ -3,8 +3,8 @@
 - dataset: `evals/datasets/migration` (10 case(s))
 - model: `openai` / `gpt-4o` — identical for every arm
 - repair budget: 3 attempts — identical for every arm
-- generated: 2026-08-24T10:54:39+00:00
-- wall clock: 1913s
+- generated: 2026-08-26T10:34:33+00:00
+- wall clock: 1736s
 
 Every arm ran the same cases against the same model with the same repair budget,
 and every patch was graded by the same hidden contract tests. The only thing that
@@ -19,10 +19,10 @@ differs between arms is what the agent was given.
 
 | Arm | Correct | 95% CI | Verified | Overclaimed | Overclaim rate | Tokens | Cost |
 |---|---|---|---|---|---|---|---|
-| `full` | **6/10** | 60% (31%-83%) | 7 | 2 | 29% | 142910 | $0.27 |
-| `no-impact-locations` | **7/10** | 70% (40%-89%) | 7 | 1 | 14% | 97568 | $0.19 |
-| `no-impact` | **7/10** | 70% (40%-89%) | 8 | 1 | 12% | 100794 | $0.19 |
-| `no-search` | **5/10** | 50% (24%-76%) | 6 | 2 | 33% | 154515 | $0.29 |
+| `full` | **7/10** | 70% (40%-89%) | 8 | 2 | 25% | 117129 | $0.23 |
+| `no-impact-locations` | **8/10** | 80% (49%-94%) | 8 | 1 | 12% | 101237 | $0.20 |
+| `no-impact` | **5/10** | 50% (24%-76%) | 7 | 2 | 29% | 127586 | $0.25 |
+| `no-search` | **6/10** | 60% (31%-83%) | 6 | 1 | 17% | 167723 | $0.32 |
 
 ## Is the difference real?
 
@@ -33,11 +33,11 @@ differences are not separable from chance, and the test is here to say so rather
 than to award a winner.
 
 - 0-1 on 1 disagreement(s), p=1.00 - not distinguishable from chance at n=10
-- 1-2 on 3 disagreement(s), p=1.00 - not distinguishable from chance at n=10
-- 1-0 on 1 disagreement(s), p=1.00 - not distinguishable from chance at n=10
-- 1-1 on 2 disagreement(s), p=1.00 - not distinguishable from chance at n=10
 - 2-0 on 2 disagreement(s), p=0.50 - not distinguishable from chance at n=10
-- 3-1 on 4 disagreement(s), p=0.62 - not distinguishable from chance at n=10
+- 2-1 on 3 disagreement(s), p=1.00 - not distinguishable from chance at n=10
+- 3-0 on 3 disagreement(s), p=0.25 - not distinguishable from chance at n=10
+- 2-0 on 2 disagreement(s), p=0.50 - not distinguishable from chance at n=10
+- 1-2 on 3 disagreement(s), p=1.00 - not distinguishable from chance at n=10
 
 ## What the arms agree on
 
@@ -52,10 +52,10 @@ than to award a winner.
 | `01-request-field-renamed` | ok | ok | ok | ok |
 | `02-rename-across-modules` | ok | ok | ok | miss |
 | `03-request-field-removed` | ok | ok | ok | ok |
-| `04-response-field-renamed` | miss | ok | ok | miss |
-| `05-enum-value-removed` | **overclaim** | miss | **overclaim** | **overclaim** |
+| `04-response-field-renamed` | **overclaim** | ok | **overclaim** | ok |
+| `05-enum-value-removed` | **overclaim** | **overclaim** | **overclaim** | **overclaim** |
 | `06-raw-http-client` | ok | ok | ok | ok |
 | `07-required-field-added` | miss | miss | miss | miss |
-| `08-wrapper-and-tests` | **overclaim** | **overclaim** | ok | **overclaim** |
+| `08-wrapper-and-tests` | ok | ok | miss | miss |
 | `09-unrelated-change` | ok | ok | **spurious** | ok |
 | `10-partially-migrated` | ok | ok | ok | ok |

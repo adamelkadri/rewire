@@ -121,6 +121,12 @@ class CaseOutcome(BaseModel):
     truly_correct: bool | None = None
     #: Why grading reached that answer, including when it could not run.
     grading_detail: str = ""
+    #: The sandbox's verdict on each attempt, in order. Recorded because
+    #: ``status`` collapses several of them into ``unverified``, and the one
+    #: this benchmark exists to count -- ``weakened``, meaning Rewire refused to
+    #: vouch for a patch that passed by weakening the tests -- is
+    #: indistinguishable from ``regressed`` without it.
+    verdicts: tuple[str, ...] = ()
 
     files_changed: int = 0
     attempts: int = 0
@@ -129,6 +135,15 @@ class CaseOutcome(BaseModel):
     cost_usd: float | None = None
     duration_seconds: float = 0.0
     error: str = ""
+
+    @property
+    def refused_as_weakened(self) -> bool:
+        """Whether the sandbox refused to vouch because the tests were weakened.
+
+        A patch that reaches this is *not* an overclaim, which is the point: the
+        cheat happened and Rewire declined to call it a success.
+        """
+        return any(verdict == Verdict.WEAKENED.value for verdict in self.verdicts)
 
     @property
     def succeeded(self) -> bool:
@@ -199,6 +214,16 @@ class ArmResult(BaseModel):
     def underclaimed(self) -> int:
         """Correct patches Rewire declined to vouch for."""
         return sum(1 for outcome in self.outcomes if outcome.underclaimed)
+
+    @property
+    def refused_as_weakened(self) -> int:
+        """Cases where the sandbox refused to vouch because the tests were weakened.
+
+        Reported beside the overclaim count because it is where overclaims go
+        when the check works: the patch is still wrong, but Rewire no longer
+        says otherwise.
+        """
+        return sum(1 for outcome in self.outcomes if outcome.refused_as_weakened)
 
     @property
     def repaired(self) -> int:
@@ -370,6 +395,10 @@ def evaluate_case(
             "grading_detail": detail,
             "files_changed": len(outcome.patch.files),
             "attempts": len(repair.attempts) if repair else 0,
+            "verdicts": tuple(
+                attempt.verdict.value if attempt.verdict else ""
+                for attempt in (repair.attempts if repair else ())
+            ),
             "repaired": repair.repaired if repair else False,
             "tokens": repair.total_tokens if repair else 0,
             # No repair object means the pipeline stopped before calling a
@@ -487,16 +516,17 @@ def render_markdown(result: BenchmarkResult) -> str:
         "Rewire claimed; **correct** is what the hidden test found. The gap between them",
         "is the rate at which Rewire's own verification was fooled.",
         "",
-        "| Arm | Attempts | Correct | Verified | Overclaimed | Underclaimed |"
+        "| Arm | Attempts | Correct | Verified | Overclaimed | Weakened | Underclaimed |"
         " Repaired | Tokens | Cost |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for arm in result.arms:
         cost = f"${arm.total_cost_usd:.2f}" if arm.total_cost_usd is not None else "unknown"
         lines.append(
             f"| {arm.arm} | {arm.max_attempts} | "
             f"**{arm.succeeded}/{arm.total}** ({arm.success_rate:.0%}) | "
-            f"{arm.claimed} | {arm.overclaimed} | {arm.underclaimed} | "
+            f"{arm.claimed} | {arm.overclaimed} | {arm.refused_as_weakened} | "
+            f"{arm.underclaimed} | "
             f"{arm.repaired} | {arm.total_tokens} | {cost} |"
         )
 
