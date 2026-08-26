@@ -83,8 +83,10 @@ def test_a_record_is_built_from_a_finished_run() -> None:
 
 
 def test_reading_a_newer_version_is_refused_rather_than_guessed(tmp_path: Path) -> None:
-    """A reader that shrugs is how a benchmark computes a number from fields
-    that no longer mean what it thinks they mean.
+    """A reader that shrugs is how a wrong number gets computed confidently.
+
+    Reading the fields it recognises from a format whose meaning has moved is
+    the same failure this project spent three phases learning to distrust.
     """
     payload = json.loads(record().to_json())
     payload["version"] = RECORD_VERSION + 1
