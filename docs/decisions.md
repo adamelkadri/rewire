@@ -86,6 +86,10 @@ Phase 13 when concurrent API workloads actually need it.
 **Cost.** SQLite's weaker concurrency and type affinity must be kept in mind, and
 the switchover must be exercised in CI before Phase 13 is called done.
 
+**Superseded in part by ADR-065.** SQLAlchemy was never added and no model was
+ever persisted, so "via SQLAlchemy" and the `REWIRE_DATABASE_URL` switch describe
+something this project has never had. The job queue uses `sqlite3` directly.
+
 ---
 
 ## ADR-006 — No Celery until a queue is genuinely required
@@ -1526,3 +1530,65 @@ the outcome and the record is the durable form of that, so the pipeline can
 depend on the record instead of the reverse — but it does mean the enum is not
 where a reader would first look for it, and `migrate.py` re-exports it to keep
 every existing import working.
+
+---
+
+## ADR-064 — The queue is one SQLite file, and a claim is a guarded UPDATE
+
+**Decision.** Background work is a `jobs` table in SQLite, in WAL mode, with a
+busy timeout. A worker claims a job with a single `UPDATE ... WHERE id = ? AND
+state = 'queued'` and checks the affected row count. Claims carry a lease the
+worker extends while it works; an expired lease returns the job to the queue, and
+a job that exhausts its attempts fails permanently with the reason recorded.
+
+**Why.** Selecting a candidate and then updating it is a race — two workers
+select the same row and both proceed. Putting the expected state in the `WHERE`
+clause makes the loser affect zero rows, so it takes the next candidate instead.
+That statement is identical on Postgres, which matters: the correctness rests on
+the guarded update rather than on any SQLite-specific locking, so the backend can
+change without the queue's logic changing with it.
+
+The lease exists because a worker killed mid-migration releases nothing, and a
+job stuck in `running` is a job nobody will ever redo. The attempt ceiling exists
+because reclaiming forever is how one poison job takes down a worker pool a
+process at a time. Both are guesses about a worker that has stopped answering,
+which is why the lease is generous and the ceiling is low.
+
+`fail()` is deliberately *not* retried by the lease. A worker that caught an
+exception knows something an expiry cannot: the job ran to a conclusion and the
+conclusion was bad. Retrying that is a decision for a person.
+
+**Cost, stated plainly.** This is a single-machine queue. SQLite's write
+serialisation is adequate for one host and is not adequate for several, so
+nothing here delivers the horizontal scale a multi-tenant deployment would want.
+Cancelling a running job marks it cancelled rather than interrupting it, because
+nothing in this process can reach into another one.
+
+---
+
+## ADR-065 — Correcting ADR-005: there is no SQLAlchemy, and Postgres is not supported
+
+**Decision.** ADR-005 said the MVP uses SQLite "via SQLAlchemy" with models that
+avoid SQLite-only behaviour, so that switching to Postgres is a
+`REWIRE_DATABASE_URL` change. Two of those three claims were never true and the
+third was never exercised. SQLAlchemy was never added as a dependency, no model
+was ever persisted, and `REWIRE_DATABASE_URL` has pointed at a database that does
+not exist since Phase 0.
+
+The queue introduced in ADR-064 uses the standard library's `sqlite3` directly.
+Every statement is written to run unmodified on Postgres — no SQLite-only types,
+no autoincrement, timestamps as ISO-8601 text — but **nothing has run it on
+Postgres, and until something does, Rewire supports SQLite only.**
+
+**Why say so rather than quietly add SQLAlchemy.** The setting has been in
+`.env.example` and the settings model for thirteen phases, describing a
+capability that did not exist. Adding an ORM now to make the old sentence true
+would be building infrastructure to justify a claim rather than to do a job; the
+queue needs one table and six statements.
+
+**What this costs, and what has to happen.** ADR-005 made exercising the
+switchover a condition of Phase 13 being finished, and that condition now has a
+concrete shape: a Postgres service in CI, the same queue test suite run against
+both backends, and a backend seam that is a class rather than a rewrite. Until
+that exists Phase 13 is not done, and `REWIRE_DATABASE_URL` remains a setting
+that configures nothing.

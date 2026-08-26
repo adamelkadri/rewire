@@ -944,7 +944,10 @@ debt below.
 
 - `Settings.database_url` defaults to a `sqlite+aiosqlite` URL, but no
   SQLAlchemy engine, models or migrations exist yet. The value is currently
-  configuration-only and unvalidated against a live driver (Phase 13).
+  configuration-only and unvalidated against a live driver (Phase 13). **Now
+  corrected in ADR-065**: SQLAlchemy was never added and the setting configures
+  nothing; the job queue uses `sqlite3` directly and Postgres is unsupported
+  until CI exercises it.
 - `AgentSettings` defaults are informed guesses that Phase 6 will have to
   justify with measurements. `SandboxSettings` is now read by the sandbox
   (Phase 5), but its numbers are equally unmeasured.
