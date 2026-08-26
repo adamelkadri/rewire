@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from rewire.jobs.models import Job, JobState, utc_now
-from rewire.jobs.store import JobError, JobStore, open_store
+from rewire.jobs.store import JobError, JobStore, LeaseLostError, open_store
 
 NOW = utc_now()
 
@@ -316,3 +316,55 @@ def test_a_default_lease_is_used_when_none_is_given(tmp_path: Path) -> None:
     assert claimed is not None
     assert claimed.lease_expires_at is not None
     assert claimed.lease_expires_at > NOW
+
+
+# ---------------------------------------------------------------- ownership ---
+
+
+def test_a_worker_that_lost_the_job_cannot_finish_it(store: JobStore) -> None:
+    """Found by the worker tests: the state guard alone was not enough.
+
+    `succeed` and `fail` originally checked only that the job was running. A
+    worker whose lease expired mid-migration is racing the worker that has since
+    claimed it, and both see `running` -- so the loser could overwrite the
+    winner's result. The ownership guard is in the UPDATE for the same reason the
+    claim's state guard is.
+    """
+    store.submit("migrate")
+    first = store.claim("worker-1", now=NOW)
+    assert first is not None
+
+    second = store.claim("worker-2", now=NOW + timedelta(seconds=61))
+    assert second is not None and second.id == first.id
+
+    with pytest.raises(LeaseLostError, match="no longer holds"):
+        store.succeed(first.id, run_id="run-first", worker="worker-1")
+    with pytest.raises(LeaseLostError, match="no longer holds"):
+        store.fail(first.id, "the loser's own problem", worker="worker-1")
+
+    untouched = store.get(first.id)
+    assert untouched.state is JobState.RUNNING
+    assert untouched.worker == "worker-2"
+    assert untouched.run_id == ""
+    assert untouched.error == ""
+
+
+def test_the_worker_that_holds_the_job_can_finish_it(store: JobStore) -> None:
+    store.submit("migrate")
+    claimed = store.claim("worker-1", now=NOW)
+    assert claimed is not None
+    done = store.succeed(claimed.id, run_id="run-1", worker="worker-1", now=NOW)
+    assert done.state is JobState.SUCCEEDED
+
+
+def test_finishing_without_naming_a_worker_still_works(store: JobStore) -> None:
+    """An operator finishing a job by hand is not racing anybody."""
+    store.submit("migrate")
+    claimed = store.claim("worker-1", now=NOW)
+    assert claimed is not None
+    assert store.fail(claimed.id, "cancelled by hand", now=NOW).state is JobState.FAILED
+
+
+def test_a_lease_lost_error_is_a_job_error(store: JobStore) -> None:
+    """Callers that do not care about the distinction keep catching JobError."""
+    assert issubclass(LeaseLostError, JobError)

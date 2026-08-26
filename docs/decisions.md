@@ -1558,6 +1558,16 @@ which is why the lease is generous and the ceiling is low.
 exception knows something an expiry cannot: the job ran to a conclusion and the
 conclusion was bad. Retrying that is a decision for a person.
 
+**Corrected while building the worker.** The first version guarded only the
+*claim*. `succeed` and `fail` checked that a job was running and not *who* was
+running it, so a worker whose lease expired mid-migration could overwrite the
+result of the worker that had since taken the job — both see `running`, and
+check-then-write loses the race. The ownership guard is now in the finishing
+`UPDATE` too, and a worker that no longer holds a job is told so rather than
+silently succeeding. The worker's heartbeat still notices sooner, but it is an
+optimisation on top of the database's guarantee, not the guarantee itself. Found
+by a test written to assert the property, not by review.
+
 **Cost, stated plainly.** This is a single-machine queue. SQLite's write
 serialisation is adequate for one host and is not adequate for several, so
 nothing here delivers the horizontal scale a multi-tenant deployment would want.
@@ -1592,3 +1602,37 @@ concrete shape: a Postgres service in CI, the same queue test suite run against
 both backends, and a backend seam that is a class rather than a rewrite. Until
 that exists Phase 13 is not done, and `REWIRE_DATABASE_URL` remains a setting
 that configures nothing.
+
+---
+
+## ADR-066 — A worker stops between jobs, and never records a result it does not own
+
+**Decision.** A worker claims, runs, records, repeats. Two rules shape it. Every
+write names the worker, so the store refuses it if the lease expired while the
+handler ran. And a stop signal is honoured *between* jobs: the worker finishes
+what it holds and then exits.
+
+**Why not record after losing the lease.** A worker that was merely slow — paused,
+swapped, starved — comes back to find another worker already redoing its job.
+Whatever it writes at that point overwrites a result it knows nothing about. It
+is better to lose the work, which the queue will redo anyway, than to publish an
+answer for a job somebody else owns.
+
+**Why not interrupt a running job.** Killing a migration half way leaves a
+container running and a patch unverified, and the queue would redo the job when
+the lease expired regardless. Waiting costs a couple of minutes in the ordinary
+case; the case where that is too long is a worker that has stopped answering,
+which the lease already handles. The stop signal is an event rather than a flag,
+so an idle worker leaves immediately rather than sleeping out its poll interval.
+
+**Where the policy comes from.** The handler reads the *task* from the job
+payload and takes the *policy* from the worker's own configuration — the
+separation ADR-061 introduced, at the one boundary where it matters. A payload
+naming `apply` gets nothing, because a task has no field to receive it. The
+default policy for a queued migration cannot write to a working tree at all:
+queued work is unattended by definition, and Phase 11's rule is that unattended
+work reaches a repository as a pull request.
+
+**Cost.** A crash inside a handler is caught broadly so one bad job cannot end a
+process that could still run the others, which means a genuine bug is recorded
+as a failed job rather than surfacing as a stack trace in the foreground.

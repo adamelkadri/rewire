@@ -84,6 +84,17 @@ class JobError(RewireError):
     code = "job_error"
 
 
+class LeaseLostError(JobError):
+    """A worker tried to finish a job it no longer holds.
+
+    Raised rather than returned because there is nothing sensible for the caller
+    to do with the result it was about to record: another worker owns the job and
+    will record its own.
+    """
+
+    code = "lease_lost"
+
+
 class JobStore:
     """The queue. One SQLite file, safe for many workers on one machine."""
 
@@ -234,15 +245,25 @@ class JobStore:
 
     # ------------------------------------------------------------- finish ---
 
-    def succeed(self, job_id: str, *, run_id: str = "", now: datetime | None = None) -> Job:
+    def succeed(
+        self,
+        job_id: str,
+        *,
+        run_id: str = "",
+        worker: str = "",
+        now: datetime | None = None,
+    ) -> Job:
         """Record that a job finished, naming the run it produced.
 
         Raises:
             JobError: The job does not exist, or was not running.
+            LeaseLostError: ``worker`` was given and no longer holds the job.
         """
-        return self._finish(job_id, JobState.SUCCEEDED, run_id=run_id, now=now)
+        return self._finish(job_id, JobState.SUCCEEDED, run_id=run_id, worker=worker, now=now)
 
-    def fail(self, job_id: str, error: str, *, now: datetime | None = None) -> Job:
+    def fail(
+        self, job_id: str, error: str, *, worker: str = "", now: datetime | None = None
+    ) -> Job:
         """Record that a job failed and will not be retried by this path.
 
         A worker that catches an exception knows something a lease expiry does
@@ -251,8 +272,9 @@ class JobStore:
 
         Raises:
             JobError: The job does not exist, or was not running.
+            LeaseLostError: ``worker`` was given and no longer holds the job.
         """
-        return self._finish(job_id, JobState.FAILED, error=error, now=now)
+        return self._finish(job_id, JobState.FAILED, error=error, worker=worker, now=now)
 
     def cancel(self, job_id: str, *, now: datetime | None = None) -> Job:
         """Withdraw a job that has not finished.
@@ -286,8 +308,17 @@ class JobStore:
         *,
         run_id: str = "",
         error: str = "",
+        worker: str = "",
         now: datetime | None = None,
     ) -> Job:
+        """Move a running job to a terminal state, guarded on who holds it.
+
+        The ownership guard is in the `WHERE` clause for the same reason the
+        claim's is: a worker whose lease expired while it worked may be racing
+        the worker that has since taken the job, and "check then write" would let
+        it overwrite a result it knows nothing about. Guarding in SQL means the
+        loser changes nothing and finds out.
+        """
         moment = now or utc_now()
         with self._connect() as connection:
             existing = self._require(connection, job_id)
@@ -296,18 +327,20 @@ class JobStore:
                     f"cannot finish a job that is {existing.state.value}, not running",
                     job=job_id,
                 )
-            connection.execute(
-                "UPDATE jobs SET state = ?, finished_at = ?, run_id = ?, error = ?, "
-                "worker = '', lease_expires_at = NULL WHERE id = ? AND state = ?",
-                (
-                    state.value,
-                    _stamp(moment),
-                    run_id,
-                    error,
-                    job_id,
-                    JobState.RUNNING.value,
-                ),
+            values: tuple[Any, ...] = (
+                state.value,
+                _stamp(moment),
+                run_id,
+                error,
+                job_id,
+                JobState.RUNNING.value,
+                *((worker,) if worker else ()),
             )
+            updated = connection.execute(_FINISH_OWNED if worker else _FINISH_ANY, values)
+            if updated.rowcount != 1:
+                raise LeaseLostError(
+                    "this worker no longer holds the job", job=job_id, worker=worker
+                )
             finished = self._require(connection, job_id)
         logger.info("job_finished", job=job_id, state=state.value, run_id=run_id)
         return finished
@@ -371,6 +404,17 @@ class JobStore:
         return _from_row(row)
 
 
+#: The two finishing statements, written out rather than assembled from a
+#: fragment, so that no query in this module is built by interpolation.
+_FINISH_ANY: Final[str] = (
+    "UPDATE jobs SET state = ?, finished_at = ?, run_id = ?, error = ?, "
+    "worker = '', lease_expires_at = NULL WHERE id = ? AND state = ?"
+)
+_FINISH_OWNED: Final[str] = (
+    "UPDATE jobs SET state = ?, finished_at = ?, run_id = ?, error = ?, "
+    "worker = '', lease_expires_at = NULL WHERE id = ? AND state = ? AND worker = ?"
+)
+
 #: How many candidates a claim will try before giving up this pass. Bounded so a
 #: pathologically contended queue returns rather than spinning.
 _CLAIM_ATTEMPTS: Final[int] = 8
@@ -429,5 +473,6 @@ __all__ = [
     "SCHEMA",
     "JobError",
     "JobStore",
+    "LeaseLostError",
     "open_store",
 ]
