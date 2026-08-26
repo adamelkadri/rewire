@@ -164,6 +164,9 @@ def build_task_prompt(
             lines.append(f"- replaced by: {change.replacement}")
         if change.detail:
             lines.append(f"- detail: {change.detail}")
+        # Without these, "enum values removed at response_format" tells the
+        # agent to change something and not what to change it to.
+        lines.extend(f"- {line}" for line in change.value_lines())
         if include_locations:
             lines.append("- affected locations:")
             for location in entry.locations:

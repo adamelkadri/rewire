@@ -70,9 +70,12 @@ not.
 
 **The clearest target the two runs agree on.** `05-enum-value-removed` was
 overclaimed by 3 of 4 models in both comparisons and by 3 then 4 of 4 arms. It
-fails identically every time because `ChangeReport` records *that* an enum changed
-and not *which values*, so the agent invents one and the visible tests do not
-care. Sixteen runs agreeing makes it the best-evidenced fix available.
+fails identically every time. Investigating why corrected a claim carried since
+Phase 11: **the differ was never at fault.** `ApiChange` has held `old_value` and
+`new_value` since Phase 1 and the differ populates them; neither the task prompt
+nor `inspect_api_change` rendered them. The agent was told a value had been
+removed and another added at the same field and never which, so inventing one was
+the only move left. Fixed in ADR-060.
 
 **Instrumentation fixed along the way.** The published benchmark JSON recorded only
 `status`, which collapses `weakened` and `regressed` into `unverified` — so the
@@ -237,9 +240,11 @@ caught. Wall clock 1084s, $0.43.
 
 **Does not deliver.** Two observed cheat classes are still undetected and named
 in ADR-050: rewriting a test's input data, which is structurally identical to a
-correct migration, and inventing a value absent from both specifications, which
-needs `ChangeReport` to record *which* enum values changed rather than only that
-some did.
+correct migration, and inventing a value absent from both specifications. (The
+second half of that sentence originally blamed `ChangeReport` for not recording
+which enum values changed. That was wrong — see the correction under ADR-050 —
+and the values are now rendered to the agent by ADR-060. Detecting the invention
+afterwards is still undone.)
 
 **Debt.** One run per configuration against a non-deterministic agent, so the
 3 → 1 drop is not cleanly attributable to the checks. The published model

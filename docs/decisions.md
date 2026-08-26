@@ -1154,10 +1154,16 @@ rule over the diff can separate them.
 **Inventing a value the specification does not contain.** Another replaced the
 enum value `"text"` with `"plain_text"`, which appears in neither specification.
 This one *is* detectable — "a literal in neither spec replacing one that was in
-the old spec" — but not yet, because `ChangeReport` records *that* enum values
-were removed and added, not *which*. Fixing the differ to carry the values is
-worth doing on its own merits, since the agent would also benefit from being told
-what to migrate a removed value *to*.
+the old spec" — and is not yet detected.
+
+**Correction (2026-08-26).** This decision originally blamed the differ, saying
+`ChangeReport` records *that* enum values changed and not *which*. That was
+wrong: `ApiChange` has carried `old_value` and `new_value` since Phase 1, and the
+differ has always populated them. What dropped the values was the *rendering* —
+neither the task prompt nor `inspect_api_change` ever showed them, so the agent
+was told "enum values removed at response_format" and nothing more. The values
+are now rendered (ADR-060), which removes the reason to invent one; detecting the
+invention afterwards remains undone.
 
 **Why say so.** A check that catches two of four cheat classes and is described
 as catching cheating would be a worse artefact than one that names its blind
@@ -1377,3 +1383,42 @@ refusal: it is a claim, not a measurement.
 **Cost.** A specification behind a credential cannot be watched, which rules out
 most internal API gateways and any vendor requiring a key. `--allow-http` exists
 for a genuinely trusted endpoint and has to be passed every time.
+
+---
+
+## ADR-060 — The agent is told which values changed, not only that some did
+
+**Decision.** `ApiChange.value_lines()` renders `old_value` and `new_value`, and
+both the task prompt and `inspect_api_change` show them under the change they
+belong to. Values are bounded at 200 characters, because a value can be an
+arbitrary schema fragment and a prompt is not the place to paste one.
+
+**Why.** `05-enum-value-removed` failed identically in sixteen consecutive
+benchmark runs — three of four models in both comparisons, three then four of
+four ablation arms — always the same way: the agent replaced a removed enum value
+with one present in neither specification.
+
+The reason turned out to be smaller and different from the one this project had
+been recording. Since Phase 11 the failure was attributed to the differ, on the
+claim that `ChangeReport` recorded *that* an enum changed and not *which values*.
+That claim was false. `ApiChange` has carried `old_value` and `new_value` since
+Phase 1 and the differ has always populated them. What dropped them was the
+rendering: `detail` is one line long by design, and nothing else was shown. So the
+agent received
+
+```text
+- detail: POST /v1/chat/completions: request_body enum values removed at response_format
+- detail: POST /v1/chat/completions: request_body enum values added at response_format
+```
+
+— told that a value was removed and another added, at the same field, and never
+which. Inventing one is not a lapse of judgement under those instructions; it is
+the only move available. The information was one line away the whole time.
+
+**Cost.** Prompts grow by a line or two per change that carries a value. The
+truncation is a real limit: a large schema fragment is shown as a prefix, and an
+agent that needs the whole thing has to read the specification itself.
+
+**Not yet measured.** The benchmark has not been re-run since this change, so
+nothing here claims case 05 now passes — only that the reason it could not was
+removed. Re-running is the test.

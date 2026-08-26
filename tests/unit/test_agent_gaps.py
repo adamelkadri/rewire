@@ -11,6 +11,7 @@ import openai
 import pytest
 
 from rewire.agents.migration_agent import _accumulate_cost
+from rewire.agents.patch import PatchBuilder
 from rewire.agents.prompts import build_review_nudge, build_task_prompt
 from rewire.agents.state import AgentState
 from rewire.agents.tools import ToolContext, invoke
@@ -256,3 +257,55 @@ def test_wrapped_errors_name_the_provider_not_the_request() -> None:
     error = wrap_provider_error("openai", ValueError("boom"))
     assert error.details["provider"] == "openai"
     assert "boom" in str(error)
+
+
+def test_the_prompt_names_the_enum_values_that_changed(tmp_path: Path) -> None:
+    """The failure `05-enum-value-removed` reproduced sixteen times.
+
+    Told only that a value was removed and another added at the same field, the
+    agent has no way to learn what to migrate to and invents a value present in
+    neither specification. Both values were on the change all along.
+    """
+    spec = (
+        'openapi: "3.0.3"\ninfo: {{title: OpenAI API, version: "{v}"}}\n'
+        + """paths:
+  /v1/chat/completions:
+    post:
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                response_format: {{type: string, enum: [text, {e}, srt]}}
+      responses: {{'200': {{description: OK}}}}
+"""
+    )
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname="a"\nversion="1"\ndependencies=["openai"]\n', encoding="utf-8"
+    )
+    (tmp_path / "app.py").write_text(
+        "import openai\n\nBODY = {'response_format': 'json'}\n", encoding="utf-8"
+    )
+    changes = diff_specs(
+        parse_spec_text(spec.format(v="1", e="json")),
+        parse_spec_text(spec.format(v="2", e="json_object")),
+    )
+    impact = analyse_impact(changes, build_index(tmp_path))
+
+    prompt = build_task_prompt(changes, impact)
+    assert "was: 'json'" in prompt
+    assert "now: 'json_object'" in prompt
+
+    # And through the tool, which an agent that withholds locations still has.
+    workspace = Workspace.open(tmp_path)
+    context = ToolContext(
+        workspace=workspace,
+        index=build_index(tmp_path),
+        impact=impact,
+        changes=changes,
+        patch=PatchBuilder(read_file=workspace.read_full),
+    )
+    shown = invoke("inspect_api_change", context, {"field": "response_format"})
+    assert "was: 'json'" in shown.content
+    assert "now: 'json_object'" in shown.content

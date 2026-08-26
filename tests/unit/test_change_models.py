@@ -7,6 +7,7 @@ import json
 import pytest
 
 from rewire.changes.models import (
+    MAX_VALUE_CHARS,
     ApiChange,
     ChangeReport,
     ChangeSummary,
@@ -132,3 +133,68 @@ def test_empty_report_has_no_breaking_changes() -> None:
 def test_every_change_type_has_a_unique_value() -> None:
     values = [member.value for member in ChangeType]
     assert len(values) == len(set(values))
+
+
+# ------------------------------------------------------------------ values ---
+
+
+def test_a_change_renders_the_values_it_carries() -> None:
+    """The information was always on the model; it was simply never shown.
+
+    ``detail`` says *that* an enum value was removed. An agent told only that has
+    nothing to migrate the value *to*, so the only move left is to invent one --
+    which is exactly what sixteen benchmark runs of `05-enum-value-removed`
+    observed it doing.
+    """
+    removed = ApiChange(
+        type=ChangeType.REQUEST_SCHEMA_CHANGED,
+        severity=Severity.BREAKING,
+        field_path="response_format",
+        old_value=["json"],
+    )
+    added = ApiChange(
+        type=ChangeType.REQUEST_SCHEMA_CHANGED,
+        severity=Severity.NON_BREAKING,
+        field_path="response_format",
+        new_value=["json_object"],
+    )
+    assert removed.value_lines() == ["was: 'json'"]
+    assert added.value_lines() == ["now: 'json_object'"]
+
+
+def test_a_change_with_both_values_renders_both() -> None:
+    change = ApiChange(
+        type=ChangeType.REQUEST_SCHEMA_CHANGED,
+        severity=Severity.BREAKING,
+        field_path="count",
+        old_value="string",
+        new_value="integer",
+    )
+    assert change.value_lines() == ["was: 'string'", "now: 'integer'"]
+
+
+def test_a_change_with_no_values_renders_nothing() -> None:
+    change = ApiChange(type=ChangeType.ENDPOINT_REMOVED, severity=Severity.BREAKING)
+    assert change.value_lines() == []
+
+
+def test_a_false_value_is_still_a_value() -> None:
+    """``if not value`` would drop ``false`` and ``0``, which are real values."""
+    change = ApiChange(
+        type=ChangeType.REQUEST_SCHEMA_CHANGED,
+        severity=Severity.BREAKING,
+        old_value=False,
+        new_value=0,
+    )
+    assert change.value_lines() == ["was: False", "now: 0"]
+
+
+def test_a_huge_value_is_truncated_rather_than_flooding_the_prompt() -> None:
+    change = ApiChange(
+        type=ChangeType.REQUEST_SCHEMA_CHANGED,
+        severity=Severity.BREAKING,
+        old_value=["x" * 50 for _ in range(50)],
+    )
+    rendered = change.value_lines()[0]
+    assert rendered.endswith("... (truncated)")
+    assert len(rendered) < MAX_VALUE_CHARS + 40

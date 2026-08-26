@@ -98,6 +98,24 @@ class ChangeLocation(StrEnum):
     RESPONSE = "response"
 
 
+#: Longest rendering of a single old or new value. A value can be an arbitrary
+#: schema fragment, and a prompt is not the place to paste one.
+MAX_VALUE_CHARS: Final[int] = 200
+
+
+def _render_value(value: Any) -> str:
+    """Render a value compactly, truncating rather than flooding a prompt."""
+    if isinstance(value, list):
+        text = ", ".join(_render_value(item) for item in value)
+    elif isinstance(value, str):
+        text = repr(value)
+    else:
+        text = str(value)
+    if len(text) > MAX_VALUE_CHARS:
+        return f"{text[:MAX_VALUE_CHARS]}... (truncated)"
+    return text
+
+
 class ApiChange(BaseModel):
     """A single detected difference between two API specifications.
 
@@ -139,6 +157,26 @@ class ApiChange(BaseModel):
     def is_breaking(self) -> bool:
         """Whether this change definitely breaks existing client code."""
         return self.severity is Severity.BREAKING
+
+    def value_lines(self) -> list[str]:
+        """The old and new values, when there are any, rendered for a reader.
+
+        ``detail`` says *that* something changed and deliberately stays one line
+        long. For most change types that is enough, because the field name is the
+        whole story. It is not enough for a value set: "enum values removed at
+        response_format" tells an agent to change something and not what to
+        change it to, so the only move left is to invent one. The values are
+        already on the model; they were simply never shown.
+
+        Bounded, because a value can be an arbitrary schema fragment and a prompt
+        is not the place to paste one.
+        """
+        lines = []
+        if self.old_value is not None:
+            lines.append(f"was: {_render_value(self.old_value)}")
+        if self.new_value is not None:
+            lines.append(f"now: {_render_value(self.new_value)}")
+        return lines
 
     @property
     def sort_key(self) -> tuple[int, str, str, str]:

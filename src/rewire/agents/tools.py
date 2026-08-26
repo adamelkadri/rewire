@@ -174,6 +174,7 @@ def _inspect_api_change(context: ToolContext, arguments: dict[str, Any]) -> str:
         )
         if change.detail:
             lines.append(f"  {change.detail}")
+        lines.extend(f"  {line}" for line in change.value_lines())
         if not context.include_impact_locations:
             lines.append("  (affected locations are not available; find them yourself)")
             continue

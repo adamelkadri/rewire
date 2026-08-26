@@ -523,10 +523,13 @@ which is why it gets its own arm ([ADR-045](docs/decisions.md)).
 **Case 05 is the most consistent failure in the dataset.** `05-enum-value-removed`
 was overclaimed by all four arms here and by three of four in the first run, and
 by three of four models in both model comparisons. It fails the same way every
-time, for a reason [ADR-050](docs/decisions.md) names: `ChangeReport` records
-*that* an enum changed, not *which values*, so the agent invents one and the
-visible tests do not care. Eight model-runs and eight arm-runs agreeing makes it
-the best-evidenced fix available.
+time, and investigating why corrected a claim this project had been repeating.
+**The differ was never at fault.** `ApiChange` has carried `old_value` and
+`new_value` since Phase 1 and the differ populates them; neither the task prompt
+nor `inspect_api_change` ever *rendered* them. The agent was told a value had
+been removed and another added at the same field, never which, so inventing one
+was the only move left. The values are now shown
+([ADR-060](docs/decisions.md)).
 
 Making an ablation genuinely ablate took three fixes, each a leak found while
 building it: `inspect_api_change` also returns locations; the task prompt listed
@@ -777,11 +780,14 @@ a test's input data from `{"finish_reason": ...}` to
 `{"choices": [{"finish_reason": ...}]}` — which is exactly what a *correct*
 response-field migration looks like; only the specification knows which shape is
 right. Another invented the enum value `"plain_text"`, present in neither
-specification. That one *is* detectable, but needs the differ to record which
-enum values changed rather than merely that some did.
+specification. That one *is* detectable and is not yet detected — though the
+*reason* the agent reached for an invented value has since been removed: the
+prompt never named the values the specification did contain
+([ADR-060](docs/decisions.md)).
 
-> The model-comparison and ablation results below were measured before these
-> checks existed, and have not been re-run under them.
+> The model-comparison and ablation results below were re-run under these checks
+> on 2026-08-26. What changed, and what the change does and does not establish,
+> is set out with the results.
 
 ## Measured impact-analysis accuracy
 
