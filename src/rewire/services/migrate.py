@@ -99,14 +99,32 @@ class MigrationStatus(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
-class MigrationRequest:
-    """What to migrate, and how far to go."""
+class MigrationTask:
+    """*What* to migrate.
+
+    Every field here is a description of the job, and a caller is entitled to
+    choose all of them. This is the half an HTTP request body may fill in.
+    """
 
     repository: Path
     old_spec: Path
     new_spec: Path
     #: Packages the API belongs to, to sharpen impact analysis.
     packages: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class MigrationPolicy:
+    """*How far* a run may go.
+
+    Every field here is an authority rather than a preference: permission to
+    write, permission to write over uncommitted work, how much money the run may
+    spend. Separated from :class:`MigrationTask` so that the type system says
+    where each value is allowed to come from — the task from whoever asked, the
+    policy from whoever runs the server. A request body that could set ``apply``
+    would be a request body that can write to disk.
+    """
+
     #: Write the verified patch into the working tree.
     apply: bool = False
     #: Permit writing into a tree that already has uncommitted changes.
@@ -121,6 +139,75 @@ class MigrationRequest:
     #: analysis is worth has to be able to switch this off, because "it can tell
     #: you there is nothing to do" is part of what it is worth.
     require_affected_code: bool = True
+
+    @classmethod
+    def read_only(cls, *, max_attempts: int = 3) -> MigrationPolicy:
+        """A policy that cannot write, for a caller that is not at the keyboard.
+
+        Named rather than assembled at each call site so that "this run may not
+        touch the working tree" is one reviewable thing instead of two booleans
+        someone has to notice are both false.
+        """
+        return cls(apply=False, allow_dirty=False, max_attempts=max_attempts)
+
+
+@dataclass(frozen=True, slots=True)
+class MigrationRequest:
+    """A task and the authority to carry it out.
+
+    The two are carried separately and read through this one object, so that
+    every existing caller keeps reading ``request.repository`` and
+    ``request.apply`` while construction has to say which half each value came
+    from.
+    """
+
+    task: MigrationTask
+    policy: MigrationPolicy = MigrationPolicy()
+
+    @property
+    def repository(self) -> Path:
+        """Repository to migrate."""
+        return self.task.repository
+
+    @property
+    def old_spec(self) -> Path:
+        """Specification the code currently targets."""
+        return self.task.old_spec
+
+    @property
+    def new_spec(self) -> Path:
+        """Specification to migrate to."""
+        return self.task.new_spec
+
+    @property
+    def packages(self) -> tuple[str, ...]:
+        """Packages the API belongs to."""
+        return self.task.packages
+
+    @property
+    def apply(self) -> bool:
+        """Whether a verified patch may be written to the working tree."""
+        return self.policy.apply
+
+    @property
+    def allow_dirty(self) -> bool:
+        """Whether writing into a tree with uncommitted changes is permitted."""
+        return self.policy.allow_dirty
+
+    @property
+    def max_attempts(self) -> int:
+        """Repair attempts allowed."""
+        return self.policy.max_attempts
+
+    @property
+    def agent(self) -> AgentConfig:
+        """What the agent is given."""
+        return self.policy.agent
+
+    @property
+    def require_affected_code(self) -> bool:
+        """Whether a run stops when impact analysis finds nothing."""
+        return self.policy.require_affected_code
 
 
 @dataclass(frozen=True, slots=True)
@@ -360,7 +447,9 @@ def _record(settings: Settings, outcome: MigrationOutcome) -> None:
 
 __all__ = [
     "MigrationOutcome",
+    "MigrationPolicy",
     "MigrationRequest",
     "MigrationStatus",
+    "MigrationTask",
     "run_migration",
 ]

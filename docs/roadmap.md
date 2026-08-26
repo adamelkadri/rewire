@@ -790,9 +790,10 @@ debt below.
   never be `VERIFIED`. That is intended (ADR-035), but it excludes a large
   fraction of real repositories and Phase 12 will need a first-class state for
   it rather than treating it as failure.
-- `MigrationRequest` carries both *what* to migrate and *how far to go*, which
+- ~~`MigrationRequest` carries both *what* to migrate and *how far to go*, which
   will not survive Phase 13's HTTP API — a request body should not be able to
-  set `allow_dirty`.
+  set `allow_dirty`.~~ **Closed** by ADR-061: split into `MigrationTask` and
+  `MigrationPolicy`.
 - `migration.json` has no schema and no version field. Phase 8 will read it, at
   which point the format becomes an interface that needs both.
 - The clean-tree check runs before the model *and* the content check runs before

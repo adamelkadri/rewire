@@ -37,7 +37,12 @@ from rewire.changes.models import ChangeReport
 from rewire.changes.spec import ApiSpec, load_spec, parse_spec_text
 from rewire.core.errors import RewireError, WatchError
 from rewire.core.logging import get_logger
-from rewire.services.migrate import MigrationOutcome, MigrationRequest
+from rewire.services.migrate import (
+    MigrationOutcome,
+    MigrationPolicy,
+    MigrationRequest,
+    MigrationTask,
+)
 from rewire.services.publish import PublishOutcome, PublishRequest, check_publishable
 from rewire.watch.models import (
     ActedRecord,
@@ -308,13 +313,17 @@ class _Check:
                 reason=f"cannot open a pull request: {refusal}",
             )
 
+        # A monitor runs with nobody at the keyboard, so it gets the policy that
+        # cannot write. Phase 11's rule again, one layer up: a pull request is
+        # how an unattended change reaches a repository.
         request = MigrationRequest(
-            repository=self.watch.repository,
-            old_spec=baseline_path,
-            new_spec=candidate_path,
-            packages=self.watch.packages,
-            apply=False,
-            max_attempts=self.watch.max_attempts,
+            task=MigrationTask(
+                repository=self.watch.repository,
+                old_spec=baseline_path,
+                new_spec=candidate_path,
+                packages=self.watch.packages,
+            ),
+            policy=MigrationPolicy.read_only(max_attempts=self.watch.max_attempts),
         )
         try:
             outcome = migrate(request)

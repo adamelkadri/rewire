@@ -1426,3 +1426,38 @@ failed the same way in all sixteen runs before it. Three runs is three runs, and
 the model is not deterministic; what makes this more than a lucky streak is that
 the mechanism is deterministic and visible in the prompt. The full comparison and
 ablation have not been re-run, so no aggregate rate here has moved.
+
+---
+
+## ADR-061 — A task is what to migrate; a policy is what a run may do
+
+**Decision.** `MigrationRequest` is now a pair. `MigrationTask` carries
+*repository, old spec, new spec, packages* — a description of the job.
+`MigrationPolicy` carries *apply, allow_dirty, max_attempts,* the agent
+configuration and the impact gate — permissions and budgets. Existing callers
+still read `request.repository` and `request.apply`; only construction changed,
+and construction now has to say which half each value came from.
+
+**Why.** Phase 7 recorded this as debt the moment it shipped: `MigrationRequest`
+described both what to do and how far to go, which is fine for a CLI where the
+person typing the flags is the person who owns the repository, and wrong for an
+HTTP API where the two are different people. A request body able to set `apply`
+is a request body able to write to disk, and one able to set `allow_dirty` can
+write over uncommitted work it did not create.
+
+Splitting by *type* rather than by validation is what makes it structural. A
+handler builds a task from the body and takes the policy from server
+configuration; there is no code path by which a body-derived value becomes an
+authority, because the handler never constructs a policy from the body. A
+`max_attempts` from an untrusted caller is a spend control, so it goes with the
+policy too.
+
+`MigrationPolicy.read_only()` exists so that "this run may not touch the working
+tree" is one named thing rather than two booleans a reviewer has to notice are
+both false. The watch monitor now uses it: an unattended run has nobody at the
+keyboard, and a pull request is how its work should reach a repository.
+
+**Cost.** Construction is more verbose at six call sites, and the delegating
+properties mean there are two ways to read the same value. The alternative —
+validating the dangerous fields at the boundary — leaves them reachable, which is
+the thing this was meant to stop.

@@ -86,8 +86,10 @@ from rewire.sandbox import (
 from rewire.sandbox import CheckStatus as SandboxCheckStatus
 from rewire.services import (
     MigrationOutcome,
+    MigrationPolicy,
     MigrationRequest,
     MigrationStatus,
+    MigrationTask,
     PublishOutcome,
     PublishRequest,
     PublishStatus,
@@ -1441,13 +1443,17 @@ def migrate(
 
     outcome = run_migration(
         MigrationRequest(
-            repository=repo,
-            old_spec=old_spec,
-            new_spec=new_spec,
-            packages=tuple(package or ()),
-            apply=apply_patch,
-            allow_dirty=allow_dirty,
-            max_attempts=max_attempts,
+            task=MigrationTask(
+                repository=repo,
+                old_spec=old_spec,
+                new_spec=new_spec,
+                packages=tuple(package or ()),
+            ),
+            policy=MigrationPolicy(
+                apply=apply_patch,
+                allow_dirty=allow_dirty,
+                max_attempts=max_attempts,
+            ),
         ),
         provider=build_provider(settings.llm),
         settings=settings,

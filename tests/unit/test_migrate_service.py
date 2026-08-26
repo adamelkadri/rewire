@@ -25,7 +25,13 @@ from rewire.sandbox.models import (
     Verdict,
     VerificationReport,
 )
-from rewire.services import MigrationRequest, MigrationStatus, run_migration
+from rewire.services import (
+    MigrationPolicy,
+    MigrationRequest,
+    MigrationStatus,
+    MigrationTask,
+    run_migration,
+)
 
 SPEC = (
     'openapi: "3.0.3"\ninfo: {{title: OpenAI API, version: "{v}"}}\n'
@@ -124,10 +130,12 @@ def migrate(
 ):
     return run_migration(
         MigrationRequest(
-            repository=case / "repo",
-            old_spec=case / "old.yaml",
-            new_spec=case / "new.yaml",
-            **kwargs,  # type: ignore[arg-type]
+            task=MigrationTask(
+                repository=case / "repo",
+                old_spec=case / "old.yaml",
+                new_spec=case / "new.yaml",
+            ),
+            policy=MigrationPolicy(**kwargs),  # type: ignore[arg-type]
         ),
         provider=provider,
         settings=settings,
@@ -230,10 +238,12 @@ def test_writing_outside_a_git_repository_is_refused(tmp_path: Path, settings: S
     )
     outcome = run_migration(
         MigrationRequest(
-            repository=plain,
-            old_spec=tmp_path / "old.yaml",
-            new_spec=tmp_path / "new.yaml",
-            apply=True,
+            task=MigrationTask(
+                repository=plain,
+                old_spec=tmp_path / "old.yaml",
+                new_spec=tmp_path / "new.yaml",
+            ),
+            policy=MigrationPolicy(apply=True),
         ),
         provider=provider_editing(),
         settings=settings,
@@ -256,11 +266,12 @@ def test_a_repository_that_moved_after_verification_is_refused(
 
     outcome = run_migration(
         MigrationRequest(
-            repository=case / "repo",
-            old_spec=case / "old.yaml",
-            new_spec=case / "new.yaml",
-            apply=True,
-            allow_dirty=True,
+            task=MigrationTask(
+                repository=case / "repo",
+                old_spec=case / "old.yaml",
+                new_spec=case / "new.yaml",
+            ),
+            policy=MigrationPolicy(apply=True, allow_dirty=True),
         ),
         provider=provider_editing(),
         settings=settings,
@@ -313,3 +324,53 @@ def test_every_status_has_a_summary_sentence() -> None:
     for status in MigrationStatus:
         outcome = MigrationOutcome(run_id="r", status=status)
         assert outcome.summary_line()
+
+
+# ------------------------------------------------------- task versus policy ---
+
+
+def test_a_request_reads_through_to_both_halves() -> None:
+    """Callers keep reading one object; construction has to say which half."""
+    request = MigrationRequest(
+        task=MigrationTask(
+            repository=Path("repo"),
+            old_spec=Path("old.yaml"),
+            new_spec=Path("new.yaml"),
+            packages=("acme",),
+        ),
+        policy=MigrationPolicy(apply=True, allow_dirty=True, max_attempts=5),
+    )
+    assert request.repository == Path("repo")
+    assert request.packages == ("acme",)
+    assert (request.apply, request.allow_dirty, request.max_attempts) == (True, True, 5)
+    assert request.require_affected_code is True
+
+
+def test_a_request_without_a_policy_cannot_write() -> None:
+    """The default is the safe one, so forgetting the policy cannot write."""
+    request = MigrationRequest(
+        task=MigrationTask(
+            repository=Path("repo"), old_spec=Path("old.yaml"), new_spec=Path("new.yaml")
+        )
+    )
+    assert request.apply is False
+    assert request.allow_dirty is False
+
+
+def test_a_read_only_policy_says_so_in_one_place() -> None:
+    """Two booleans someone has to notice are both false is not a guarantee."""
+    policy = MigrationPolicy.read_only(max_attempts=2)
+    assert (policy.apply, policy.allow_dirty) == (False, False)
+    assert policy.max_attempts == 2
+
+
+def test_a_task_carries_no_authority_at_all() -> None:
+    """The half a request body may fill in.
+
+    This is the property the split exists for: there is no field on a task that
+    grants permission to do anything, so a caller who can only construct a task
+    cannot ask for a write however the body is shaped.
+    """
+    fields = set(MigrationTask.__dataclass_fields__)
+    assert fields == {"repository", "old_spec", "new_spec", "packages"}
+    assert not fields & set(MigrationPolicy.__dataclass_fields__)

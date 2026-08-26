@@ -36,7 +36,13 @@ from rewire.evals.migration_dataset import Expectation, MigrationCase
 from rewire.llm.base import LLMProvider
 from rewire.sandbox.models import Verdict, VerificationReport, VerificationRequest
 from rewire.sandbox.verifier import verify
-from rewire.services.migrate import MigrationRequest, MigrationStatus, run_migration
+from rewire.services.migrate import (
+    MigrationPolicy,
+    MigrationRequest,
+    MigrationStatus,
+    MigrationTask,
+    run_migration,
+)
 from rewire.services.repair import VerifyCallable
 
 logger = get_logger(__name__)
@@ -353,14 +359,19 @@ def evaluate_case(
     try:
         outcome = run_migration(
             MigrationRequest(
-                repository=case.repository,
-                old_spec=case.old_spec,
-                new_spec=case.new_spec,
-                packages=case.packages,
-                apply=False,
-                max_attempts=arm.max_attempts,
-                agent=arm.agent,
-                require_affected_code=arm.require_affected_code,
+                task=MigrationTask(
+                    repository=case.repository,
+                    old_spec=case.old_spec,
+                    new_spec=case.new_spec,
+                    packages=case.packages,
+                ),
+                # The arm *is* the policy: it is the experimental condition.
+                policy=MigrationPolicy(
+                    apply=False,
+                    max_attempts=arm.max_attempts,
+                    agent=arm.agent,
+                    require_affected_code=arm.require_affected_code,
+                ),
             ),
             provider=provider,
             settings=settings,

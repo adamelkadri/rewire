@@ -9,8 +9,10 @@ which nothing else depends on, keeps every arrow pointing one way.
 
 from rewire.services.migrate import (
     MigrationOutcome,
+    MigrationPolicy,
     MigrationRequest,
     MigrationStatus,
+    MigrationTask,
     run_migration,
 )
 from rewire.services.publish import (
@@ -34,8 +36,10 @@ __all__ = [
     "REPAIRABLE",
     "Attempt",
     "MigrationOutcome",
+    "MigrationPolicy",
     "MigrationRequest",
     "MigrationStatus",
+    "MigrationTask",
     "PublishOutcome",
     "PublishRequest",
     "PublishStatus",
