@@ -25,6 +25,14 @@ from rewire.services.publish import (
     check_publishable,
     publish,
 )
+from rewire.services.record import (
+    MigrationRecord,
+    RecordError,
+    read_all,
+    read_record,
+    read_run,
+    write_record,
+)
 from rewire.services.repair import (
     REPAIRABLE,
     Attempt,
@@ -38,6 +46,7 @@ __all__ = [
     "Attempt",
     "MigrationOutcome",
     "MigrationPolicy",
+    "MigrationRecord",
     "MigrationRequest",
     "MigrationRuntime",
     "MigrationStatus",
@@ -45,6 +54,7 @@ __all__ = [
     "PublishOutcome",
     "PublishRequest",
     "PublishStatus",
+    "RecordError",
     "RepairOutcome",
     "RepairPolicy",
     "build_body",
@@ -52,5 +62,9 @@ __all__ = [
     "check_publishable",
     "migrate_with_repair",
     "publish",
+    "read_all",
+    "read_record",
+    "read_run",
     "run_migration",
+    "write_record",
 ]

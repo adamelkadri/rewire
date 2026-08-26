@@ -32,12 +32,10 @@ failure would make the common case look broken.
 
 from __future__ import annotations
 
-import json
 import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
 
 from rewire.agents.config import DEFAULT_AGENT_CONFIG, AgentConfig
@@ -56,47 +54,10 @@ from rewire.impact.analyzer import analyse_impact
 from rewire.impact.models import ImpactReport
 from rewire.llm.base import LLMProvider
 from rewire.sandbox.models import VerificationRequest
+from rewire.services.record import MigrationStatus, write_record
 from rewire.services.repair import RepairOutcome, RepairPolicy, VerifyCallable, migrate_with_repair
 
 logger = get_logger(__name__)
-
-
-class MigrationStatus(StrEnum):
-    """What a migration run concluded.
-
-    Six outcomes rather than a boolean, because they call for different actions
-    and three of them are not failures.
-    """
-
-    #: The two specifications differ in nothing that could break a caller.
-    NO_BREAKING_CHANGES = "no_breaking_changes"
-    #: There are breaking changes, but nothing in this repository uses them.
-    NO_AFFECTED_CODE = "no_affected_code"
-    #: A patch was verified and written to the working tree.
-    APPLIED = "applied"
-    #: A patch was verified. Nothing was written, because nothing asked it to be.
-    VERIFIED = "verified"
-    #: A patch was verified, but writing it was refused. See ``refusal``.
-    REFUSED = "refused"
-    #: A patch exists but the sandbox did not confirm it.
-    UNVERIFIED = "unverified"
-    #: The agent produced no patch at all.
-    NO_PATCH = "no_patch"
-
-    @property
-    def is_success(self) -> bool:
-        """Whether this outcome means the run did its job.
-
-        "Nothing here is affected" is a success. Most runs will say it once
-        Phase 12 watches upstream specifications, and treating it as a failure
-        would make a healthy repository look broken every time an API moves.
-        """
-        return self in {
-            MigrationStatus.NO_BREAKING_CHANGES,
-            MigrationStatus.NO_AFFECTED_CODE,
-            MigrationStatus.APPLIED,
-            MigrationStatus.VERIFIED,
-        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -370,7 +331,7 @@ def run_migration(
             status=status.value,
             written=len(outcome.written),
         )
-        _record(runtime.runs_dir, outcome)
+        write_record(runtime.runs_dir, outcome)
         return outcome
 
     changes = diff_specs(load_spec(request.old_spec), load_spec(request.new_spec))
@@ -454,45 +415,6 @@ def _sandbox_request(settings: Settings) -> VerificationRequest:
         read_only_rootfs=sandbox.read_only_rootfs,
         max_repo_size_mb=sandbox.max_repo_size_mb,
     )
-
-
-def _record(runs_dir: Path, outcome: MigrationOutcome) -> None:
-    """Write a machine-readable record of the run beside its traces.
-
-    Phase 8 aggregates these into a success rate, so it is written for every
-    terminal status including the ones where nothing happened -- a dataset of
-    only the interesting runs is a dataset with a hole in it.
-    """
-    directory = runs_dir / outcome.run_id
-    payload = {
-        "run_id": outcome.run_id,
-        "status": outcome.status.value,
-        "summary": outcome.summary_line(),
-        "duration_seconds": outcome.duration_seconds,
-        "files_written": list(outcome.written),
-        "refusal": outcome.refusal,
-        "changes": outcome.changes.summary.model_dump(mode="json") if outcome.changes else None,
-        "affected_locations": outcome.impact.summary.locations if outcome.impact else 0,
-        "attempts": [
-            {
-                "number": attempt.number,
-                "verdict": attempt.verdict.value if attempt.verdict else None,
-                "files": len(attempt.patch.files),
-                "tokens": attempt.result.summary.usage.total_tokens,
-            }
-            for attempt in (outcome.repair.attempts if outcome.repair else ())
-        ],
-        "repaired": outcome.repair.repaired if outcome.repair else False,
-        "total_tokens": outcome.repair.total_tokens if outcome.repair else 0,
-        "total_cost_usd": outcome.repair.total_cost_usd if outcome.repair else None,
-    }
-    try:
-        directory.mkdir(parents=True, exist_ok=True)
-        (directory / "migration.json").write_text(
-            json.dumps(payload, indent=2) + "\n", encoding="utf-8"
-        )
-    except OSError as exc:  # pragma: no cover - the run directory is already writable
-        logger.warning("migration_record_not_written", run_id=outcome.run_id, error=str(exc))
 
 
 __all__ = [

@@ -1490,3 +1490,39 @@ would have forced the experiment back out into the pipeline.
 **Cost.** Callers construct one more object, and `Settings` still exists behind
 `from_settings`, so nothing yet proves the pipeline can run without it. The
 proof will be the HTTP API constructing a runtime from its own configuration.
+
+---
+
+## ADR-063 — The run record is a versioned model, and an unknown version is refused
+
+**Decision.** `migration.json` is written from a Pydantic model rather than a
+hand-assembled dictionary. It carries an integer `version`, bumped only when a
+field is removed or its meaning changes — adding a field is not a breaking
+change. `read_record` validates on the way in and **refuses** a version newer
+than this build understands. Writing stays best-effort: a record that cannot be
+written is logged and the run still returns its answer.
+
+**Why.** The file has been written since Phase 7 and read by nothing, which is
+precisely the window in which a format can be changed freely, and precisely the
+window Phase 13 closes. An HTTP client asking "what happened in run X" is
+answered from this file; at that moment the format stops being an implementation
+detail and becomes an interface, and an interface with no version cannot be
+changed safely even once.
+
+Refusing an unknown version rather than reading what it recognises is the
+asymmetry that matters. A reader that shrugs and carries on is exactly how a
+benchmark computes a confident number from fields that no longer mean what it
+thinks they mean — the same failure this project spent Phases 8 to 10 learning to
+distrust, one layer down. `read_all` is the deliberate exception: one corrupt
+file must not make a whole history unreadable, so it logs and skips, while
+`read_run` on a named record still raises.
+
+The write direction is deliberately the opposite. The record is evidence about
+the work, not the work, and a run that has already migrated a repository should
+not fail because a disk was full.
+
+**Cost.** `MigrationStatus` moved into the record module. It is the vocabulary of
+the outcome and the record is the durable form of that, so the pipeline can
+depend on the record instead of the reverse — but it does mean the enum is not
+where a reader would first look for it, and `migrate.py` re-exports it to keep
+every existing import working.

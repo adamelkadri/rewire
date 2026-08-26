@@ -794,8 +794,10 @@ debt below.
   will not survive Phase 13's HTTP API — a request body should not be able to
   set `allow_dirty`.~~ **Closed** by ADR-061: split into `MigrationTask` and
   `MigrationPolicy`.
-- `migration.json` has no schema and no version field. Phase 8 will read it, at
-  which point the format becomes an interface that needs both.
+- ~~`migration.json` has no schema and no version field. Phase 8 will read it, at
+  which point the format becomes an interface that needs both.~~ **Closed** by
+  ADR-063: a versioned model, with reading that refuses an unknown version.
+  (Phase 8 never did read it back; Phase 13's API is what closes the window.)
 - The clean-tree check runs before the model *and* the content check runs before
   the write, but nothing holds a lock in between. A concurrent editor can still
   change a file Rewire is not about to rewrite, and that goes unnoticed.
